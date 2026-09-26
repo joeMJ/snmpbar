@@ -70,7 +70,6 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         });
         generalPage.add(barGroup);
 
-        // Position: Rechts, Mitte (neben der Uhr), Links
         const posModel = Gtk.StringList.new([
             _('Rechts (neben System-Icons)'),
             _('Mitte (neben der Uhr)'),
@@ -155,7 +154,6 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         });
         window.add(ifacesPage);
 
-        // Helper: Interfaces aus Settings laden & speichern
         const loadInterfaces = () => {
             try {
                 return JSON.parse(settings.get_string('interfaces-json'));
@@ -175,13 +173,17 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         });
         ifacesPage.add(activeGroup);
 
-        const renderActiveInterfaces = () => {
-            // Alte Zeilen entfernen
-            const list = loadInterfaces();
-            // Erstelle dynamische Zeilen
-            while (activeGroup.get_first_child()) {
-                activeGroup.remove(activeGroup.get_first_child());
+        let activeRows = [];
+        const clearActiveRows = () => {
+            for (const r of activeRows) {
+                activeGroup.remove(r);
             }
+            activeRows = [];
+        };
+
+        const renderActiveInterfaces = () => {
+            clearActiveRows();
+            const list = loadInterfaces();
 
             if (list.length === 0) {
                 const emptyRow = new Adw.ActionRow({
@@ -189,6 +191,7 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                     subtitle: _('Nutze die Discovery unten, um Schnittstellen hinzuzufügen.'),
                 });
                 activeGroup.add(emptyRow);
+                activeRows.push(emptyRow);
                 return;
             }
 
@@ -198,7 +201,6 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                     subtitle: `SNMP ifIndex: ${item.index} | Icon: ${item.icon || 'network-wired-symbolic'}`,
                 });
 
-                // Switch: In Bar anzeigen
                 const barSwitch = new Gtk.Switch({
                     active: !!item.show_in_bar,
                     valign: Gtk.Align.CENTER,
@@ -210,7 +212,6 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                 });
                 row.add_suffix(barSwitch);
 
-                // Löschen-Button
                 const delBtn = new Gtk.Button({
                     icon_name: 'user-trash-symbolic',
                     valign: Gtk.Align.CENTER,
@@ -225,6 +226,7 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                 row.add_suffix(delBtn);
 
                 activeGroup.add(row);
+                activeRows.push(row);
             });
         };
 
@@ -256,18 +258,26 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         walkButtonRow.add_suffix(walkBtn);
         discoveryGroup.add(walkButtonRow);
 
-        // Gefundene Schnittstellen Container
         const resultsGroup = new Adw.PreferencesGroup({
             title: _('Gefundene Schnittstellen'),
             visible: false,
         });
         ifacesPage.add(resultsGroup);
 
+        let resultRows = [];
+        const clearResultRows = () => {
+            for (const r of resultRows) {
+                resultsGroup.remove(r);
+            }
+            resultRows = [];
+        };
+
         walkBtn.connect('clicked', () => {
             walkBtn.sensitive = false;
             spinner.visible = true;
             spinner.start();
             resultsGroup.visible = false;
+            clearResultRows();
 
             const host = settings.get_string('host');
             const comm = settings.get_string('community');
@@ -289,11 +299,7 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                         if (stdout) {
                             const data = JSON.parse(stdout);
                             if (data.status === 'ok' && data.discovered_interfaces) {
-                                // Gefundene Schnittstellen darstellen
-                                while (resultsGroup.get_first_child()) {
-                                    resultsGroup.remove(resultsGroup.get_first_child());
-                                }
-
+                                clearResultRows();
                                 const curList = loadInterfaces();
                                 const existingIndices = new Set(curList.map(i => i.index));
 
@@ -327,6 +333,7 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
 
                                     row.add_suffix(addBtn);
                                     resultsGroup.add(row);
+                                    resultRows.push(row);
                                 });
 
                                 resultsGroup.visible = true;
