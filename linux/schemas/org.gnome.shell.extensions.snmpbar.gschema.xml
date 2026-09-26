@@ -123,6 +123,18 @@
       <description>Hex-Farbcode für kontrastreiche Darstellung (Standard: Dunkel/Schwarz).</description>
     </key>
 
+    <key name="dropdown-card-border-color" type="s">
+      <default>'#00000022'</default>
+      <summary>Standort-Box Rahmenfarbe (Helles Design)</summary>
+      <description>Hex-Farbcode inkl. Transparenz für den Rahmen der Standort-Kacheln im hellen Menü.</description>
+    </key>
+
+    <key name="dropdown-card-bg-color" type="s">
+      <default>'#00000000'</default>
+      <summary>Standort-Box Hintergrundfarbe (Helles Design)</summary>
+      <description>Hex-Farbcode inkl. Transparenz für den Hintergrund der Standort-Kacheln im hellen Menü (Standard: transparent).</description>
+    </key>
+
     <!-- Dropdown-Farben für Dunkles Design (GNOME Dark Mode) -->
     <key name="dropdown-dark-text-color" type="s">
       <default>'#f6f6f6'</default>
@@ -146,6 +158,18 @@
       <default>'#00000040'</default>
       <summary>Hintergrundfarbe der Graphen im Dropdown-Menü (Dunkles Design)</summary>
       <description>Hex-Farbcode inkl. optionaler Transparenz für dunklen Menühintergrund (Standard: #00000040).</description>
+    </key>
+
+    <key name="dropdown-dark-card-border-color" type="s">
+      <default>'#ffffff25'</default>
+      <summary>Standort-Box Rahmenfarbe (Dunkles Design)</summary>
+      <description>Hex-Farbcode inkl. Transparenz für den Rahmen der Standort-Kacheln im dunklen Menü.</description>
+    </key>
+
+    <key name="dropdown-dark-card-bg-color" type="s">
+      <default>'#00000000'</default>
+      <summary>Standort-Box Hintergrundfarbe (Dunkles Design)</summary>
+      <description>Hex-Farbcode inkl. Transparenz für den Hintergrund der Standort-Kacheln im dunklen Menü (Standard: transparent).</description>
     </key>
 
     <!-- Legacy Farb-Keys zur Abwärtskompatibilität -->

@@ -441,6 +441,22 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
             true
         ));
 
+        dropLightColorGroup.add(createColorRow(
+            _('Standort-Box Rahmen (Hell)'),
+            _('Rahmenfarbe der Kacheln im hellen Menü (inkl. Transparenz)'),
+            'dropdown-card-border-color',
+            '#00000022',
+            true
+        ));
+
+        dropLightColorGroup.add(createColorRow(
+            _('Standort-Box Hintergrund (Hell)'),
+            _('Optionale Hintergrundfarbe oder Transparenz der Kacheln (Standard: transparent)'),
+            'dropdown-card-bg-color',
+            '#00000000',
+            true
+        ));
+
         // Gruppe 3: Dropdown-Menü Farben (Dunkles Design)
         const dropDarkColorGroup = new Adw.PreferencesGroup({
             title: _('Dropdown-Menü (Dunkles Design)'),
@@ -477,6 +493,22 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
             _('Hintergrundfarbe oder Transparenz der Verlaufskurven (Standard: Dezent abgedunkeltes Inset)'),
             'dropdown-dark-graph-bg-color',
             '#00000040',
+            true
+        ));
+
+        dropDarkColorGroup.add(createColorRow(
+            _('Standort-Box Rahmen (Dunkel)'),
+            _('Rahmenfarbe der Kacheln im dunklen Menü (inkl. Transparenz)'),
+            'dropdown-dark-card-border-color',
+            '#ffffff25',
+            true
+        ));
+
+        dropDarkColorGroup.add(createColorRow(
+            _('Standort-Box Hintergrund (Dunkel)'),
+            _('Optionale Hintergrundfarbe oder Transparenz der Kacheln (Standard: transparent)'),
+            'dropdown-dark-card-bg-color',
+            '#00000000',
             true
         ));
 

@@ -135,3 +135,12 @@
     opacity: 0.95;
     margin-top: 2px;
 }
+
+/* Card Container für Standorte */
+.snmpbar-card-box {
+    min-width: 360px;
+    max-width: 440px;
+    padding: 10px 12px;
+    margin: 4px 6px;
+    border-radius: 8px;
+}

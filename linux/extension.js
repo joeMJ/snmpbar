@@ -406,7 +406,7 @@ export default class SnmpBarExtension extends Extension {
 
         const isDarkMode = (this._interfaceSettings && this._interfaceSettings.get_string('color-scheme') === 'prefer-dark');
 
-        let textColor, graphDownColor, graphUpColor, graphBgColor;
+        let textColor, graphDownColor, graphUpColor, graphBgColor, cardBorderColor, cardBgColor;
 
         if (isDarkMode) {
             textColor = this._getStr('dropdown-dark-text-color', '#f6f6f6');
@@ -415,6 +415,8 @@ export default class SnmpBarExtension extends Extension {
             graphUpColor = this._getStr('dropdown-dark-graph-color-upload',
                            this._getStr('dropdown-graph-color-upload', '#33d17a'));
             graphBgColor = this._getStr('dropdown-dark-graph-bg-color', '#00000040');
+            cardBorderColor = this._getStr('dropdown-dark-card-border-color', '#ffffff25');
+            cardBgColor = this._getStr('dropdown-dark-card-bg-color', '#00000000');
         } else {
             textColor = this._getStr('menu-text-color', '#1a1a1a');
             graphDownColor = this._getStr('dropdown-graph-color-download',
@@ -422,7 +424,26 @@ export default class SnmpBarExtension extends Extension {
             graphUpColor = this._getStr('dropdown-graph-color-upload',
                            this._getStr('graph-color-upload', '#33d17a'));
             graphBgColor = this._getStr('dropdown-graph-bg-color', '#00000018');
+            cardBorderColor = this._getStr('dropdown-card-border-color', '#00000022');
+            cardBgColor = this._getStr('dropdown-card-bg-color', '#00000000');
         }
+
+        const hexToCssColor = (hex) => {
+            if (!hex || hex === 'transparent' || hex === 'none') return 'transparent';
+            const h = hex.trim();
+            if (h.startsWith('#') && h.length === 9) {
+                const r = parseInt(h.slice(1, 3), 16);
+                const g = parseInt(h.slice(3, 5), 16);
+                const b = parseInt(h.slice(5, 7), 16);
+                const a = (parseInt(h.slice(7, 9), 16) / 255.0).toFixed(2);
+                return `rgba(${r}, ${g}, ${b}, ${a})`;
+            }
+            return h;
+        };
+
+        const cssCardBorder = hexToCssColor(cardBorderColor);
+        const cssCardBg = hexToCssColor(cardBgColor);
+
         const showDropdownGraphs = this._getBool('show-dropdown-graphs', true);
         const showUptime = this._getBool('show-uptime', true);
         const showIfaceUptime = this._getBool('show-iface-uptime', true);
@@ -444,16 +465,19 @@ export default class SnmpBarExtension extends Extension {
             }];
 
         connections.forEach((conn, cIdx) => {
-            if (cIdx > 0) {
-                menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-            }
+            const cardItem = new PopupMenu.PopupBaseMenuItem({
+                reactive: false,
+                can_focus: false,
+                style_class: 'snmpbar-card-item',
+            });
+
+            const cardBox = new St.BoxLayout({
+                style_class: 'snmpbar-card-box',
+                vertical: true,
+                style: `border: 1px solid ${cssCardBorder}; background-color: ${cssCardBg}; border-radius: 8px; padding: 10px 12px; margin: 4px 6px; min-width: 360px; max-width: 440px;`,
+            });
 
             // 1. Header (Verbindungsname, Host & Uptime)
-            const headerItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
-            const headerBox = new St.BoxLayout({
-                style_class: 'snmpbar-menu-box',
-                vertical: true,
-            });
             const titleRow = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER });
             const hostIcon = new St.Icon({
                 icon_name: 'network-server-symbolic',
@@ -466,13 +490,13 @@ export default class SnmpBarExtension extends Extension {
             });
             titleRow.add_child(hostIcon);
             titleRow.add_child(headerLabel);
-            headerBox.add_child(titleRow);
+            cardBox.add_child(titleRow);
 
             if (showUptime && conn.uptime_formatted) {
                 const uptimeRow = new St.BoxLayout({
                     vertical: false,
                     y_align: Clutter.ActorAlign.CENTER,
-                    style: 'margin-left: 24px; margin-top: 2px;',
+                    style: 'margin-left: 24px; margin-top: 2px; margin-bottom: 6px;',
                 });
                 const uptimeIcon = new St.Icon({
                     icon_name: 'preferences-system-time-symbolic',
@@ -485,13 +509,10 @@ export default class SnmpBarExtension extends Extension {
                 });
                 uptimeRow.add_child(uptimeIcon);
                 uptimeRow.add_child(uptimeLabel);
-                headerBox.add_child(uptimeRow);
+                cardBox.add_child(uptimeRow);
+            } else {
+                titleRow.style = (titleRow.style || '') + ' margin-bottom: 6px;';
             }
-
-            headerItem.add_child(headerBox);
-            menu.addMenuItem(headerItem);
-
-            menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
             // 2. Aggregierte Gesamtleistung (nur wenn aktiv oder standardmäßig bei mehr als 1 Interface)
             const ifaces = conn.interfaces || [];
@@ -504,10 +525,9 @@ export default class SnmpBarExtension extends Extension {
                 const totalKey = `${conn.id || 'conn_1'}:total`;
                 const totalHist = this._getOrCreateHistory(totalKey);
 
-                const lbItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
                 const lbContainer = new St.BoxLayout({
-                    style_class: 'snmpbar-menu-box',
                     vertical: true,
+                    style: 'margin-top: 4px; margin-bottom: 8px;',
                 });
 
                 // Titel
@@ -533,17 +553,13 @@ export default class SnmpBarExtension extends Extension {
                 });
                 lbContainer.add_child(lbRatesLabel);
 
-                lbItem.add_child(lbContainer);
-                menu.addMenuItem(lbItem);
-
-                menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+                cardBox.add_child(lbContainer);
             }
 
             // 3. Schnittstellen dieser Verbindung
-            const ifacesItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
             const ifacesContainer = new St.BoxLayout({
-                style_class: 'snmpbar-menu-box',
                 vertical: true,
+                style: 'margin-top: 4px;',
             });
 
             const ifacesTitle = new St.Label({
@@ -619,8 +635,9 @@ export default class SnmpBarExtension extends Extension {
                 });
             }
 
-            ifacesItem.add_child(ifacesContainer);
-            menu.addMenuItem(ifacesItem);
+            cardBox.add_child(ifacesContainer);
+            cardItem.add_child(cardBox);
+            menu.addMenuItem(cardItem);
         });
 
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
