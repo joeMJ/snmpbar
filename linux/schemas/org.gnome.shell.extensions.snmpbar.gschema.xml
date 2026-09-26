@@ -2,22 +2,34 @@
 <schemalist>
   <schema id="org.gnome.shell.extensions.snmpbar" path="/org/gnome/shell/extensions/snmpbar/">
     
+    <key name="host" type="s">
+      <default>'192.0.2.1'</default>
+      <summary>Router / Gateway IP</summary>
+      <description>IP-Adresse des SNMP-Zielgeräts (z.B. Lancom 1803VA-5G).</description>
+    </key>
+
+    <key name="community" type="s">
+      <default>'public'</default>
+      <summary>SNMP Community String</summary>
+      <description>Read-Community für SNMPv1 und SNMPv2c.</description>
+    </key>
+
+    <key name="snmp-version" type="s">
+      <default>'v2c'</default>
+      <summary>SNMP Version</summary>
+      <description>Mögliche Werte: 'v1', 'v2c', 'v3'.</description>
+    </key>
+
     <key name="refresh-interval" type="i">
-      <default>5</default>
+      <default>3</default>
       <summary>Abfrage-Intervall in Sekunden</summary>
-      <description>Intervall für zyklische SNMP-Abfragen.</description>
+      <description>Intervall für zyklische SNMP-Abfragen (Standard: 3 Sekunden).</description>
     </key>
 
     <key name="display-mode" type="s">
       <default>'both'</default>
-      <summary>Darstellungsmodus</summary>
+      <summary>Darstellungsmodus in der Bar</summary>
       <description>Mögliche Werte: 'both' (Zahl &amp; Graph), 'numeric' (nur Zahl), 'graph' (nur Graph).</description>
-    </key>
-
-    <key name="show-in-bar-gateway" type="b">
-      <default>true</default>
-      <summary>Gateway in Top-Bar anzeigen</summary>
-      <description>Ob der Gateway-Durchsatz direkt in der GNOME Top-Bar angezeigt werden soll.</description>
     </key>
 
     <key name="show-in-bar-lb-total" type="b">
@@ -26,22 +38,28 @@
       <description>Ob der aggregierte Load Balancer-Durchsatz direkt in der GNOME Top-Bar angezeigt werden soll.</description>
     </key>
 
-    <key name="show-in-bar-lb-interfaces" type="b">
+    <key name="show-in-bar-vdsl" type="b">
       <default>false</default>
-      <summary>Load Balancer Interfaces in Top-Bar anzeigen</summary>
-      <description>Ob die einzelnen Load-Balancer-Interfaces direkt in der Top-Bar angezeigt werden sollen.</description>
+      <summary>VDSL in Top-Bar anzeigen</summary>
+      <description>Ob VDSL direkt in der Top-Bar separat angezeigt werden soll.</description>
     </key>
 
-    <key name="config-file-path" type="s">
-      <default>''</default>
-      <summary>Pfad zu externer Konfigurationsdatei</summary>
-      <description>Optionaler benutzerdefinierter Pfad (Standard: ~/.config/snmpbar/config.json).</description>
+    <key name="show-in-bar-wwan" type="b">
+      <default>false</default>
+      <summary>5G Mobilfunk in Top-Bar anzeigen</summary>
+      <description>Ob 5G WWAN direkt in der Top-Bar separat angezeigt werden soll.</description>
     </key>
 
-    <key name="config-data" type="s">
-      <default>'{}'</default>
-      <summary>Integrierte Konfigurationsdaten</summary>
-      <description>JSON-formatierte Host- und Interface-Konfigurationen.</description>
+    <key name="show-in-bar-gpon" type="b">
+      <default>false</default>
+      <summary>Glasfaser in Top-Bar anzeigen</summary>
+      <description>Ob Glasfaser (GPON) separat in der Top-Bar angezeigt werden soll.</description>
+    </key>
+
+    <key name="unit-format" type="s">
+      <default>'bits'</default>
+      <summary>Einheiten-Format</summary>
+      <description>'bits' für Mbit/s / kbit/s, 'bytes' für MB/s / KB/s.</description>
     </key>
 
   </schema>
