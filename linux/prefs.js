@@ -30,8 +30,8 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
             console.warn('[snmpbar] Konnte CSS-Provider für Preferences nicht laden:', e);
         }
 
-        // Helper: Farb-Zeile mit Hex-Input und interaktivem Colorpicker-Button
-        const createColorRow = (title, subtitle, key, defaultHex) => {
+        // Helper: Farb-Zeile mit Hex-Input und interaktivem Colorpicker-Button (optional mit Alpha)
+        const createColorRow = (title, subtitle, key, defaultHex, withAlpha = false) => {
             const row = new Adw.ActionRow({
                 title: title,
                 subtitle: subtitle,
@@ -41,33 +41,57 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
 
             const entry = new Gtk.Entry({
                 text: currentHex,
-                max_length: 7,
-                width_chars: 8,
+                max_length: withAlpha ? 9 : 7,
+                width_chars: withAlpha ? 10 : 8,
                 valign: Gtk.Align.CENTER,
             });
 
-            const dialog = new Gtk.ColorDialog({ with_alpha: false });
+            const dialog = new Gtk.ColorDialog({ with_alpha: withAlpha });
             const colorBtn = new Gtk.ColorDialogButton({
                 dialog: dialog,
                 valign: Gtk.Align.CENTER,
             });
 
-            const updateButtonFromHex = (hex) => {
-                if (hex && hex.startsWith('#') && hex.length === 7) {
+            const parseHexToRgba = (hex) => {
+                if (!hex) return null;
+                const h = hex.trim();
+                if (h === 'transparent' || h === 'none') {
                     const rgba = new Gdk.RGBA();
-                    if (rgba.parse(hex)) {
-                        colorBtn.set_rgba(rgba);
+                    rgba.red = rgba.green = rgba.blue = rgba.alpha = 0;
+                    return rgba;
+                }
+                if (h.startsWith('#')) {
+                    if (h.length === 9) { // #rrggbbaa
+                        const r = parseInt(h.slice(1, 3), 16) / 255.0;
+                        const g = parseInt(h.slice(3, 5), 16) / 255.0;
+                        const b = parseInt(h.slice(5, 7), 16) / 255.0;
+                        const a = parseInt(h.slice(7, 9), 16) / 255.0;
+                        const rgba = new Gdk.RGBA();
+                        rgba.red = r; rgba.green = g; rgba.blue = b; rgba.alpha = a;
+                        return rgba;
+                    } else if (h.length === 7) { // #rrggbb
+                        const rgba = new Gdk.RGBA();
+                        if (rgba.parse(h)) return rgba;
                     }
+                }
+                return null;
+            };
+
+            const updateButtonFromHex = (hex) => {
+                const rgba = parseHexToRgba(hex);
+                if (rgba) {
+                    colorBtn.set_rgba(rgba);
                 }
             };
 
             updateButtonFromHex(currentHex);
 
             entry.connect('changed', () => {
-                const hex = entry.text;
-                if (hex && hex.startsWith('#') && hex.length === 7) {
+                const hex = entry.text.trim();
+                const rgba = parseHexToRgba(hex);
+                if (rgba) {
                     settings.set_string(key, hex);
-                    updateButtonFromHex(hex);
+                    colorBtn.set_rgba(rgba);
                 }
             });
 
@@ -76,7 +100,11 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                 const r = Math.round(rgba.red * 255).toString(16).padStart(2, '0');
                 const g = Math.round(rgba.green * 255).toString(16).padStart(2, '0');
                 const b = Math.round(rgba.blue * 255).toString(16).padStart(2, '0');
-                const hex = `#${r}${g}${b}`;
+                let hex = `#${r}${g}${b}`;
+                if (withAlpha) {
+                    const a = Math.round(rgba.alpha * 255).toString(16).padStart(2, '0');
+                    hex = `#${r}${g}${b}${a}`;
+                }
                 entry.text = hex;
                 settings.set_string(key, hex);
             });
@@ -312,64 +340,103 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         settings.bind('show-iface-uptime', showIfaceUptimeRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         menuGroup.add(showIfaceUptimeRow);
 
-        menuGroup.add(createColorRow(
-            _('Dropdown-Schriftfarbe'),
-            _('Kontrastreiche Textfarbe für das Menü'),
-            'menu-text-color',
-            '#1a1a1a'
-        ));
-
-        // --- Gruppe 4: Farben mit Colorpicker (Getrennte Top-Bar- und Dropdown-Farben) ---
-        const colorGroup = new Adw.PreferencesGroup({
-            title: _('Farben für Datenströme & Graphen'),
-            description: _('Getrennte Farbkonfiguration für Top-Bar und Dropdown (mit interaktivem Colorpicker)'),
+        // ==========================================
+        // SEITE 2: Farbdarstellung
+        // ==========================================
+        const colorPage = new Adw.PreferencesPage({
+            title: _('Farbdarstellung'),
+            icon_name: 'applications-graphics-symbolic',
         });
-        displayPage.add(colorGroup);
+        window.add(colorPage);
 
-        colorGroup.add(createColorRow(
+        // Gruppe 1: GNOME Top-Bar Farben
+        const barColorGroup = new Adw.PreferencesGroup({
+            title: _('GNOME Top-Bar'),
+            description: _('Farben für Text und Mini-Sparkline im oberen Panel'),
+        });
+        colorPage.add(barColorGroup);
+
+        barColorGroup.add(createColorRow(
             _('Top-Bar Download-Textfarbe'),
             _('Standard: Weiß für dunkle Menüleiste'),
             'bar-color-download',
-            '#ffffff'
+            '#ffffff',
+            false
         ));
 
-        colorGroup.add(createColorRow(
+        barColorGroup.add(createColorRow(
             _('Top-Bar Upload-Textfarbe'),
             _('Standard: Extrem helles Grau'),
             'bar-color-upload',
-            '#d0d0d0'
+            '#d0d0d0',
+            false
         ));
 
-        colorGroup.add(createColorRow(
+        barColorGroup.add(createColorRow(
             _('Top-Bar Mini-Graph Download'),
             _('Farbe der Sparkline-Verlaufskurve in der Leiste'),
             'bar-graph-color-download',
-            '#3584e4'
+            '#3584e4',
+            false
         ));
 
-        colorGroup.add(createColorRow(
+        barColorGroup.add(createColorRow(
             _('Top-Bar Mini-Graph Upload'),
             _('Farbe der Sparkline-Verlaufskurve in der Leiste'),
             'bar-graph-color-upload',
-            '#33d17a'
+            '#33d17a',
+            false
         ));
 
-        colorGroup.add(createColorRow(
+        barColorGroup.add(createColorRow(
+            _('Top-Bar Mini-Graph Hintergrund'),
+            _('Hintergrundfarbe oder Transparenz der Sparkline-Box'),
+            'bar-graph-bg-color',
+            '#00000040',
+            true
+        ));
+
+        // Gruppe 2: Dropdown-Menü Farben
+        const dropColorGroup = new Adw.PreferencesGroup({
+            title: _('Dropdown-Menü'),
+            description: _('Farben für Texte, Verlaufskurven und Hintergründe im Detailmenü'),
+        });
+        colorPage.add(dropColorGroup);
+
+        dropColorGroup.add(createColorRow(
+            _('Dropdown-Schriftfarbe'),
+            _('Textfarbe für das Menü (im Dark Mode automatisch invertiert)'),
+            'menu-text-color',
+            '#1a1a1a',
+            false
+        ));
+
+        dropColorGroup.add(createColorRow(
             _('Dropdown-Graph Download'),
             _('Farbe der großen Verlaufskurven im Menü'),
             'dropdown-graph-color-download',
-            '#3584e4'
+            '#3584e4',
+            false
         ));
 
-        colorGroup.add(createColorRow(
+        dropColorGroup.add(createColorRow(
             _('Dropdown-Graph Upload'),
             _('Farbe der großen Verlaufskurven im Menü'),
             'dropdown-graph-color-upload',
-            '#33d17a'
+            '#33d17a',
+            false
+        ));
+
+        dropColorGroup.add(createColorRow(
+            _('Dropdown-Graph Hintergrund'),
+            _('Hintergrundfarbe oder Transparenz der großen Verlaufskurven'),
+            'dropdown-graph-bg-color',
+            '#00000018',
+            true
         ));
 
         // ==========================================
-        // SEITE 2: SNMP-Verbindungen & Schnittstellen
+        // SEITE 3: SNMP-Verbindungen & Schnittstellen
         // ==========================================
         const snmpPage = new Adw.PreferencesPage({
             title: _('SNMP & Schnittstellen'),

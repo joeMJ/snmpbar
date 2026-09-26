@@ -25,11 +25,15 @@ class SparklineGraph extends St.DrawingArea {
         this._txHistory = [];
         this._rxColor = [0.21, 0.52, 0.89, 0.95];
         this._txColor = [0.20, 0.82, 0.48, 0.95];
+        this._bgColor = [0, 0, 0, 0.25];
     }
 
-    setColors(rxHex, txHex) {
+    setColors(rxHex, txHex, bgHex = null) {
         this._rxColor = this._hexToRgba(rxHex, 0.95);
         this._txColor = this._hexToRgba(txHex, 0.95);
+        if (bgHex !== null) {
+            this._bgColor = this._hexToRgba(bgHex, 0.25);
+        }
         this.queue_repaint();
     }
 
@@ -40,13 +44,26 @@ class SparklineGraph extends St.DrawingArea {
     }
 
     _hexToRgba(hex, alpha = 1.0) {
-        if (!hex || !hex.startsWith('#') || hex.length < 7) {
+        if (!hex || hex === 'transparent' || hex === 'none') {
+            return [0, 0, 0, 0];
+        }
+        if (!hex.startsWith('#')) {
             return [0.5, 0.5, 0.5, alpha];
         }
-        const r = parseInt(hex.slice(1, 3), 16) / 255.0;
-        const g = parseInt(hex.slice(3, 5), 16) / 255.0;
-        const b = parseInt(hex.slice(5, 7), 16) / 255.0;
-        return [r, g, b, alpha];
+        if (hex.length === 9) {
+            const r = parseInt(hex.slice(1, 3), 16) / 255.0;
+            const g = parseInt(hex.slice(3, 5), 16) / 255.0;
+            const b = parseInt(hex.slice(5, 7), 16) / 255.0;
+            const a = parseInt(hex.slice(7, 9), 16) / 255.0;
+            return [r, g, b, a];
+        }
+        if (hex.length >= 7) {
+            const r = parseInt(hex.slice(1, 3), 16) / 255.0;
+            const g = parseInt(hex.slice(3, 5), 16) / 255.0;
+            const b = parseInt(hex.slice(5, 7), 16) / 255.0;
+            return [r, g, b, alpha];
+        }
+        return [0.5, 0.5, 0.5, alpha];
     }
 
     addSample(rx, tx) {
@@ -63,9 +80,11 @@ class SparklineGraph extends St.DrawingArea {
         const cr = this.get_context();
         const [w, h] = this.get_surface_size();
 
-        cr.setSourceRGBA(0, 0, 0, 0.25);
-        cr.rectangle(0, 0, w, h);
-        cr.fill();
+        if (this._bgColor && this._bgColor[3] > 0.001) {
+            cr.setSourceRGBA(...this._bgColor);
+            cr.rectangle(0, 0, w, h);
+            cr.fill();
+        }
 
         if (this._rxHistory.length < 2) return;
 
@@ -114,6 +133,17 @@ export default class SnmpBarExtension extends Extension {
 
         this._histories = {};
 
+        // Dark-Mode Erkennung über GNOME Interface Settings
+        try {
+            this._interfaceSettings = new Gio.Settings({ schema_id: 'org.gnome.desktop.interface' });
+            this._interfaceSettingsChangedId = this._interfaceSettings.connect('changed::color-scheme', () => {
+                this._updateColors();
+            });
+        } catch (e) {
+            this._interfaceSettings = null;
+            this._interfaceSettingsChangedId = null;
+        }
+
         this._buildIndicator();
         this._schedulePoll(1);
 
@@ -142,6 +172,12 @@ export default class SnmpBarExtension extends Extension {
             this._settingsChangedId = null;
         }
 
+        if (this._interfaceSettings && this._interfaceSettingsChangedId) {
+            this._interfaceSettings.disconnect(this._interfaceSettingsChangedId);
+            this._interfaceSettingsChangedId = null;
+        }
+        this._interfaceSettings = null;
+
         if (this._indicator) {
             this._indicator.destroy();
             this._indicator = null;
@@ -149,6 +185,33 @@ export default class SnmpBarExtension extends Extension {
 
         this._settings = null;
         console.log(`[snmpbar] Extension ${this.uuid} deaktiviert.`);
+    }
+
+    _getStr(key, fallback = '') {
+        try {
+            if (this._settings && this._settings.settings_schema && this._settings.settings_schema.has_key(key)) {
+                return this._settings.get_string(key);
+            }
+        } catch (e) {}
+        return fallback;
+    }
+
+    _getBool(key, fallback = false) {
+        try {
+            if (this._settings && this._settings.settings_schema && this._settings.settings_schema.has_key(key)) {
+                return this._settings.get_boolean(key);
+            }
+        } catch (e) {}
+        return fallback;
+    }
+
+    _getInt(key, fallback = 3) {
+        try {
+            if (this._settings && this._settings.settings_schema && this._settings.settings_schema.has_key(key)) {
+                return this._settings.get_int(key);
+            }
+        } catch (e) {}
+        return fallback;
     }
 
     _buildIndicator() {
@@ -205,7 +268,7 @@ export default class SnmpBarExtension extends Extension {
     }
 
     _addToPanel() {
-        const pos = this._settings.get_string('panel-position') || 'right';
+        const pos = this._getStr('panel-position', 'right');
         Main.panel.addToStatusArea(this.uuid, this._indicator, 1, pos);
     }
 
@@ -218,8 +281,8 @@ export default class SnmpBarExtension extends Extension {
     }
 
     _applyLayoutClasses() {
-        const unitMode = this._settings.get_string('unit-display') || 'both';
-        const unitFmt = this._settings.get_string('bar-unit-format') || 'compact';
+        const unitMode = this._getStr('unit-display', 'both');
+        const unitFmt = this._getStr('bar-unit-format', 'compact');
 
         if (this._labelBox) {
             this._labelBox.set_style_class_name(
@@ -240,18 +303,19 @@ export default class SnmpBarExtension extends Extension {
 
     _updateColors() {
         // Bar-Textfarben (Default: Weiß und extrem helles Grau)
-        const barDownColor = this._settings.get_string('bar-color-download') || '#ffffff';
-        const barUpColor = this._settings.get_string('bar-color-upload') || '#d0d0d0';
+        const barDownColor = this._getStr('bar-color-download', '#ffffff');
+        const barUpColor = this._getStr('bar-color-upload', '#d0d0d0');
 
         this._downLabel.set_style(`color: ${barDownColor};`);
         this._upLabel.set_style(`color: ${barUpColor};`);
 
         // Top-Bar Graph-Farben (Default: Blau und Grün)
-        const barGraphDownColor = this._settings.get_string('bar-graph-color-download') ||
-                                  this._settings.get_string('graph-color-download') || '#3584e4';
-        const barGraphUpColor = this._settings.get_string('bar-graph-color-upload') ||
-                                this._settings.get_string('graph-color-upload') || '#33d17a';
-        this._sparkline.setColors(barGraphDownColor, barGraphUpColor);
+        const barGraphDownColor = this._getStr('bar-graph-color-download',
+                                  this._getStr('graph-color-download', '#3584e4'));
+        const barGraphUpColor = this._getStr('bar-graph-color-upload',
+                                this._getStr('graph-color-upload', '#33d17a'));
+        const barGraphBgColor = this._getStr('bar-graph-bg-color', '#00000040');
+        this._sparkline.setColors(barGraphDownColor, barGraphUpColor, barGraphBgColor);
 
         // Auch Dropdown-Menü bei Farbänderung direkt neu rendern
         if (this._lastData) {
@@ -340,16 +404,27 @@ export default class SnmpBarExtension extends Extension {
         const menu = this._indicator.menu;
         menu.removeAll();
 
-        const textColor = this._settings.get_string('menu-text-color') || '#1a1a1a';
-        const graphDownColor = this._settings.get_string('dropdown-graph-color-download') ||
-                               this._settings.get_string('graph-color-download') || '#3584e4';
-        const graphUpColor = this._settings.get_string('dropdown-graph-color-upload') ||
-                             this._settings.get_string('graph-color-upload') || '#33d17a';
-        const showDropdownGraphs = this._settings.get_boolean('show-dropdown-graphs');
-        const showUptime = this._settings.get_boolean('show-uptime');
-        const showIfaceUptime = this._settings.get_boolean('show-iface-uptime');
-        const unitMode = this._settings.get_string('unit-display') || 'both';
-        const unitFmt = this._settings.get_string('bar-unit-format') || 'compact';
+        const isDarkMode = (this._interfaceSettings && this._interfaceSettings.get_string('color-scheme') === 'prefer-dark');
+
+        let textColor = this._getStr('menu-text-color', '#1a1a1a');
+        if (isDarkMode && (textColor === '#1a1a1a' || textColor.toLowerCase() === '#000000')) {
+            textColor = '#f6f6f6';
+        }
+
+        const graphDownColor = this._getStr('dropdown-graph-color-download',
+                               this._getStr('graph-color-download', '#3584e4'));
+        const graphUpColor = this._getStr('dropdown-graph-color-upload',
+                             this._getStr('graph-color-upload', '#33d17a'));
+
+        let graphBgColor = this._getStr('dropdown-graph-bg-color', '#00000018');
+        if (isDarkMode && graphBgColor === '#00000018') {
+            graphBgColor = '#ffffff18';
+        }
+        const showDropdownGraphs = this._getBool('show-dropdown-graphs', true);
+        const showUptime = this._getBool('show-uptime', true);
+        const showIfaceUptime = this._getBool('show-iface-uptime', true);
+        const unitMode = this._getStr('unit-display', 'both');
+        const unitFmt = this._getStr('bar-unit-format', 'compact');
 
         const styleTitle = `color: ${textColor}; font-weight: 800; font-size: 13px;`;
         const styleSection = `color: ${textColor}; font-weight: bold; font-size: 12px;`;
@@ -358,9 +433,9 @@ export default class SnmpBarExtension extends Extension {
         const connections = (data && data.connections && data.connections.length > 0)
             ? data.connections
             : [{
-                name: this._settings.get_string('connection-name') || 'Gateway',
-                host: this._settings.get_string('host') || '192.0.2.1',
-                aggregated_name: this._settings.get_string('aggregated-name') || 'Load-Balancer Gesamt',
+                name: this._getStr('connection-name', 'Gateway'),
+                host: this._getStr('host', '192.0.2.1'),
+                aggregated_name: this._getStr('aggregated-name', 'Load-Balancer Gesamt'),
                 total: null,
                 interfaces: []
             }];
@@ -436,7 +511,7 @@ export default class SnmpBarExtension extends Extension {
             // Großer Graph über den Werten
             if (showDropdownGraphs) {
                 const totalGraph = new SparklineGraph(320, 36);
-                totalGraph.setColors(graphDownColor, graphUpColor);
+                totalGraph.setColors(graphDownColor, graphUpColor, graphBgColor);
                 totalGraph.setHistory(totalHist.rx, totalHist.tx);
                 lbContainer.add_child(totalGraph);
             }
@@ -516,7 +591,7 @@ export default class SnmpBarExtension extends Extension {
                     // Großer Graph über den Schnittstellenwerten
                     if (showDropdownGraphs && iface.show_graph !== false) {
                         const ifaceGraph = new SparklineGraph(320, 28);
-                        ifaceGraph.setColors(graphDownColor, graphUpColor);
+                        ifaceGraph.setColors(graphDownColor, graphUpColor, graphBgColor);
                         ifaceGraph.setHistory(ifaceHist.rx, ifaceHist.tx);
                         singleIfaceBox.add_child(ifaceGraph);
                     }
@@ -557,7 +632,7 @@ export default class SnmpBarExtension extends Extension {
 
         this._timeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, delaySeconds, () => {
             this._pollNow();
-            const interval = this._settings ? this._settings.get_int('refresh-interval') : 3;
+            const interval = this._getInt('refresh-interval', 3);
             this._schedulePoll(Math.max(1, interval));
             return GLib.SOURCE_REMOVE;
         });
@@ -567,16 +642,16 @@ export default class SnmpBarExtension extends Extension {
         if (this._isPolling || !this._settings) return;
         this._isPolling = true;
 
-        let connsJson = this._settings.get_string('connections-json');
+        let connsJson = this._getStr('connections-json', '[]');
         if (!connsJson || connsJson === '[]') {
             const single = [{
                 id: 'conn_1',
-                name: this._settings.get_string('connection-name') || 'Gateway',
-                aggregated_name: this._settings.get_string('aggregated-name') || 'Load-Balancer Gesamt',
-                host: this._settings.get_string('host') || '192.0.2.1',
-                community: this._settings.get_string('community') || 'public',
-                version: this._settings.get_string('snmp-version') || 'v2c',
-                interfaces: JSON.parse(this._settings.get_string('interfaces-json') || '[]')
+                name: this._getStr('connection-name', 'Gateway'),
+                aggregated_name: this._getStr('aggregated-name', 'Load-Balancer Gesamt'),
+                host: this._getStr('host', '192.0.2.1'),
+                community: this._getStr('community', 'public'),
+                version: this._getStr('snmp-version', 'v2c'),
+                interfaces: JSON.parse(this._getStr('interfaces-json', '[]'))
             }];
             connsJson = JSON.stringify(single);
         }
@@ -630,7 +705,7 @@ export default class SnmpBarExtension extends Extension {
         });
 
         // Top-Bar Quelle ermitteln
-        const topbarSource = this._settings.get_string('topbar-source') || 'total';
+        const topbarSource = this._getStr('topbar-source', 'total');
         const primaryConn = connections[0];
         let targetMetric = primaryConn.total;
 
@@ -644,10 +719,10 @@ export default class SnmpBarExtension extends Extension {
             }
         }
 
-        const showNumbers = this._settings.get_boolean('show-numbers');
-        const showGraph = this._settings.get_boolean('show-graph');
-        const unitMode = this._settings.get_string('unit-display') || 'both';
-        const unitFmt = this._settings.get_string('bar-unit-format') || 'compact';
+        const showNumbers = this._getBool('show-numbers', true);
+        const showGraph = this._getBool('show-graph', true);
+        const unitMode = this._getStr('unit-display', 'both');
+        const unitFmt = this._getStr('bar-unit-format', 'compact');
 
         this._labelBox.visible = showNumbers;
         this._sparkline.visible = showGraph;

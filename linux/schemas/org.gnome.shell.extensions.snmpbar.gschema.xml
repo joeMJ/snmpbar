@@ -93,6 +93,18 @@
       <description>Standard: Grün (#33d17a).</description>
     </key>
 
+    <key name="bar-graph-bg-color" type="s">
+      <default>'#00000040'</default>
+      <summary>Hintergrundfarbe des Mini-Graphen in der Top-Bar</summary>
+      <description>Hex-Farbcode inkl. optionaler Transparenz (#rrggbbaa oder #rrggbb oder transparent).</description>
+    </key>
+
+    <key name="dropdown-graph-bg-color" type="s">
+      <default>'#00000018'</default>
+      <summary>Hintergrundfarbe der Graphen im Dropdown-Menü</summary>
+      <description>Hex-Farbcode inkl. optionaler Transparenz (#rrggbbaa oder #rrggbb oder transparent).</description>
+    </key>
+
     <key name="graph-color-download" type="s">
       <default>'#3584e4'</default>
       <summary>Legacy Graph-Farbe Download</summary>
