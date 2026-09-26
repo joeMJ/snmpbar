@@ -21,8 +21,8 @@
     max-width: 5.4em;
 }
 .snmpbar-fmt-compact.snmpbar-mode-both {
-    min-width: 10.2em;
-    max-width: 10.2em;
+    min-width: 10.4em;
+    max-width: 10.4em;
 }
 .snmpbar-box-compact.snmpbar-boxmode-bits,
 .snmpbar-box-compact.snmpbar-boxmode-bytes {
@@ -30,54 +30,54 @@
     max-width: 11.2em;
 }
 .snmpbar-box-compact.snmpbar-boxmode-both {
-    min-width: 21.0em;
-    max-width: 21.0em;
+    min-width: 21.2em;
+    max-width: 21.2em;
 }
 
-/* Variante B: Kompakte IT-Norm (Mb/s, MB/s) */
+/* Variante B: Kompakte IT-Norm (Mb, kb, MB, KB - ohne /s) */
 .snmpbar-fmt-short.snmpbar-mode-bits,
 .snmpbar-fmt-short.snmpbar-mode-bytes {
-    min-width: 6.8em;
-    max-width: 6.8em;
+    min-width: 6.0em;
+    max-width: 6.0em;
 }
 .snmpbar-fmt-short.snmpbar-mode-both {
-    min-width: 13.0em;
-    max-width: 13.0em;
+    min-width: 11.6em;
+    max-width: 11.6em;
 }
 .snmpbar-box-short.snmpbar-boxmode-bits,
 .snmpbar-box-short.snmpbar-boxmode-bytes {
-    min-width: 14.0em;
-    max-width: 14.0em;
+    min-width: 12.4em;
+    max-width: 12.4em;
 }
 .snmpbar-box-short.snmpbar-boxmode-both {
-    min-width: 26.5em;
-    max-width: 26.5em;
+    min-width: 23.6em;
+    max-width: 23.6em;
 }
 
-/* Variante C: Schlankes Vollformat (Mbit/s) */
+/* Variante C: Schlankes Vollformat (Mbit, kbit - ohne /s) */
 .snmpbar-fmt-full.snmpbar-mode-bits {
-    min-width: 7.6em;
-    max-width: 7.6em;
+    min-width: 7.8em;
+    max-width: 7.8em;
 }
 .snmpbar-fmt-full.snmpbar-mode-bytes {
-    min-width: 6.8em;
-    max-width: 6.8em;
+    min-width: 6.2em;
+    max-width: 6.2em;
 }
 .snmpbar-fmt-full.snmpbar-mode-both {
-    min-width: 14.2em;
-    max-width: 14.2em;
+    min-width: 13.6em;
+    max-width: 13.6em;
 }
 .snmpbar-box-full.snmpbar-boxmode-bits {
-    min-width: 15.6em;
-    max-width: 15.6em;
+    min-width: 16.0em;
+    max-width: 16.0em;
 }
 .snmpbar-box-full.snmpbar-boxmode-bytes {
-    min-width: 14.0em;
-    max-width: 14.0em;
+    min-width: 12.8em;
+    max-width: 12.8em;
 }
 .snmpbar-box-full.snmpbar-boxmode-both {
-    min-width: 29.0em;
-    max-width: 29.0em;
+    min-width: 27.6em;
+    max-width: 27.6em;
 }
 
 /* Fallback-Klassen zur Abwärtskompatibilität */

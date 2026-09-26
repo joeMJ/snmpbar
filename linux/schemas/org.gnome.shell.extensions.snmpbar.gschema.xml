@@ -35,13 +35,13 @@
     <key name="unit-display" type="s">
       <default>'both'</default>
       <summary>Einheiten-Formatierung</summary>
-      <description>'both' (Bits und Bytes), 'bits' (nur Bits/s), 'bytes' (nur Bytes/s).</description>
+      <description>'both' (Bits und Bytes), 'bits' (nur Bits), 'bytes' (nur Bytes).</description>
     </key>
 
     <key name="bar-unit-format" type="s">
       <default>'compact'</default>
       <summary>Top-Bar Einheiten-Format</summary>
-      <description>'compact' (Ultra-kompakt: M, k, G), 'short' (Kompakte IT-Norm: Mb/s, MB/s), 'full' (Schlankes Vollformat: Mbit/s).</description>
+      <description>'compact' (Ultra-kompakt: M, k, G), 'short' (Kompakte IT-Norm: Mb, MB), 'full' (Schlankes Vollformat: Mbit, MB).</description>
     </key>
 
     <!-- Getrennte Farben für Bar-Text und Graphen -->

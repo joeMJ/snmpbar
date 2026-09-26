@@ -199,9 +199,9 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         displayPage.add(unitGroup);
 
         const unitModel = Gtk.StringList.new([
-            _('Beides: Mbit/s und MB/s (Standard)'),
-            _('Nur Bits/s (kbit/s, Mbit/s, Gbit/s)'),
-            _('Nur Bytes/s (KB/s, MB/s, GB/s)')
+            _('Beides: Bits und Bytes (z. B. Mbit und MB)'),
+            _('Nur Bits (kbit, Mbit, Gbit)'),
+            _('Nur Bytes (KB, MB, GB)')
         ]);
         const curUnit = settings.get_string('unit-display') || 'both';
         let unitIdx = 0;
@@ -210,7 +210,7 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
 
         const unitRow = new Adw.ComboRow({
             title: _('Einheiten-Auswahl'),
-            subtitle: _('Wähle zwischen Bits/s, Bytes/s oder beidem'),
+            subtitle: _('Wähle zwischen Bits, Bytes oder beidem'),
             model: unitModel,
             selected: unitIdx,
         });
@@ -221,9 +221,9 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         unitGroup.add(unitRow);
 
         const formatModel = Gtk.StringList.new([
-            _('Variante A: Ultra-kompakt (856.6 M / 6.3 M)'),
-            _('Variante B: Kompakte IT-Norm (856.6 Mb/s / 6.3 Mb/s)'),
-            _('Variante C: Schlankes Vollformat (856.6 Mbit/s)')
+            _('Variante A: Ultra-kompakt (z. B. 10.6 M / 6.3 M)'),
+            _('Variante B: Kompakte IT-Norm (z. B. 10.6 Mb / 6.3 Mb)'),
+            _('Variante C: Schlankes Vollformat (z. B. 10.6 Mbit / 6.3 Mbit)')
         ]);
         const curFormat = settings.get_string('bar-unit-format') || 'compact';
         let formatIdx = 0;
@@ -232,7 +232,7 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
 
         const formatRow = new Adw.ComboRow({
             title: _('Top-Bar Darstellungsformat'),
-            subtitle: _('Wähle die gewünschte Einheitenbeschriftung in der Menüleiste'),
+            subtitle: _('Format der Einheiten in der Menüleiste (ohne /s oder /sec)'),
             model: formatModel,
             selected: formatIdx,
         });

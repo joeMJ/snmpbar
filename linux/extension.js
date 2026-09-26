@@ -274,16 +274,16 @@ export default class SnmpBarExtension extends Extension {
                 if (unitMode === 'bytes') return { down: '↓   --.- B', up: '↑   --.- B', combined: '↓   --.- B    ↑   --.- B' };
                 return { down: '↓   --.- b (  --.- B)', up: '↑   --.- b (  --.- B)', combined: '↓   --.- b (  --.- B)    ↑   --.- b (  --.- B)' };
             } else if (unitFmt === 'short') {
-                if (unitMode === 'bits') return { down: '↓   --.-  b/s', up: '↑   --.-  b/s', combined: '↓   --.-  b/s    ↑   --.-  b/s' };
-                if (unitMode === 'bytes') return { down: '↓   --.-  B/s', up: '↑   --.-  B/s', combined: '↓   --.-  B/s    ↑   --.-  B/s' };
-                return { down: '↓   --.-  b/s (  --.-  B/s)', up: '↑   --.-  b/s (  --.-  B/s)', combined: '↓   --.-  b/s (  --.-  B/s)    ↑   --.-  b/s (  --.-  B/s)' };
+                if (unitMode === 'bits') return { down: '↓   --.-  b', up: '↑   --.-  b', combined: '↓   --.-  b    ↑   --.-  b' };
+                if (unitMode === 'bytes') return { down: '↓   --.-  B', up: '↑   --.-  B', combined: '↓   --.-  B    ↑   --.-  B' };
+                return { down: '↓   --.-  b (  --.-  B)', up: '↑   --.-  b (  --.-  B)', combined: '↓   --.-  b (  --.-  B)    ↑   --.-  b (  --.-  B)' };
             } else {
-                if (unitMode === 'bits') return { down: '↓   --.-  bit/s', up: '↑   --.-  bit/s', combined: '↓   --.-  bit/s    ↑   --.-  bit/s' };
-                if (unitMode === 'bytes') return { down: '↓   --.-  B/s', up: '↑   --.-  B/s', combined: '↓   --.-  B/s    ↑   --.-  B/s' };
+                if (unitMode === 'bits') return { down: '↓   --.-  bit', up: '↑   --.-  bit', combined: '↓   --.-  bit    ↑   --.-  bit' };
+                if (unitMode === 'bytes') return { down: '↓   --.-  B', up: '↑   --.-  B', combined: '↓   --.-  B    ↑   --.-  B' };
                 return {
-                    down: '↓   --.-  bit/s (  --.-  B/s)',
-                    up: '↑   --.-  bit/s (  --.-  B/s)',
-                    combined: '↓   --.-  bit/s (  --.-  B/s)    ↑   --.-  bit/s (  --.-  B/s)'
+                    down: '↓   --.-  bit (  --.-  B)',
+                    up: '↑   --.-  bit (  --.-  B)',
+                    combined: '↓   --.-  bit (  --.-  B)    ↑   --.-  bit (  --.-  B)'
                 };
             }
         }
@@ -337,6 +337,7 @@ export default class SnmpBarExtension extends Extension {
         const graphUpColor = this._settings.get_string('graph-color-upload') || '#33d17a';
         const showDropdownGraphs = this._settings.get_boolean('show-dropdown-graphs');
         const unitMode = this._settings.get_string('unit-display') || 'both';
+        const unitFmt = this._settings.get_string('bar-unit-format') || 'compact';
 
         const styleTitle = `color: ${textColor}; font-weight: 800; font-size: 13px;`;
         const styleSection = `color: ${textColor}; font-weight: bold; font-size: 12px;`;
@@ -406,8 +407,8 @@ export default class SnmpBarExtension extends Extension {
                 lbContainer.add_child(totalGraph);
             }
 
-            // Ratenzeile gemäß unit-display
-            const totalFmt = this._formatText(total, unitMode);
+            // Ratenzeile gemäß unit-display & bar-unit-format
+            const totalFmt = this._formatText(total, unitMode, unitFmt);
             const lbRatesLabel = new St.Label({
                 text: totalFmt.combined,
                 style: styleNormal,
@@ -472,8 +473,8 @@ export default class SnmpBarExtension extends Extension {
                         singleIfaceBox.add_child(ifaceGraph);
                     }
 
-                    // Zahlenzeile gemäß unit-display
-                    const ifaceFmt = this._formatText(iface, unitMode);
+                    // Zahlenzeile gemäß unit-display & bar-unit-format
+                    const ifaceFmt = this._formatText(iface, unitMode, unitFmt);
                     const ifaceRatesLabel = new St.Label({
                         text: ifaceFmt.combined,
                         style: styleNormal,

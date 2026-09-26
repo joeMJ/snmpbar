@@ -209,19 +209,19 @@ def format_rate(bits_per_sec, style="full"):
 
     if bps >= 1_000_000_000_000:
         val = f"{bps / 1_000_000_000_000:5.1f}".replace(" ", FIG_SPACE)
-        unit = "T" if style == "compact" else ("Tb/s" if style == "short" else "Tbit/s")
+        unit = "T" if style == "compact" else ("Tb" if style == "short" else "Tbit")
     elif bps >= 1_000_000_000:
         val = f"{bps / 1_000_000_000:5.1f}".replace(" ", FIG_SPACE)
-        unit = "G" if style == "compact" else ("Gb/s" if style == "short" else "Gbit/s")
+        unit = "G" if style == "compact" else ("Gb" if style == "short" else "Gbit")
     elif bps >= 1_000_000:
         val = f"{bps / 1_000_000:5.1f}".replace(" ", FIG_SPACE)
-        unit = "M" if style == "compact" else ("Mb/s" if style == "short" else "Mbit/s")
+        unit = "M" if style == "compact" else ("Mb" if style == "short" else "Mbit")
     elif bps >= 1_000:
         val = f"{bps / 1_000:5.1f}".replace(" ", FIG_SPACE)
-        unit = "k" if style == "compact" else ("kb/s" if style == "short" else "kbit/s")
+        unit = "k" if style == "compact" else ("kb" if style == "short" else "kbit")
     else:
         val = f"{bps:5.1f}".replace(" ", FIG_SPACE)
-        unit = "b" if style == "compact" else (" b/s" if style == "short" else FIG_SPACE + "bit/s")
+        unit = "b" if style == "compact" else (FIG_SPACE + "b" if style == "short" else FIG_SPACE + "bit")
     return f"{val} {unit}"
 
 def format_bytes_rate(bytes_per_sec, style="full"):
@@ -234,19 +234,19 @@ def format_bytes_rate(bytes_per_sec, style="full"):
 
     if Bps >= 1_099_511_627_776:
         val = f"{Bps / 1_099_511_627_776:5.1f}".replace(" ", FIG_SPACE)
-        unit = "T" if style == "compact" else "TB/s"
+        unit = "T" if style == "compact" else "TB"
     elif Bps >= 1_073_741_824:
         val = f"{Bps / 1_073_741_824:5.1f}".replace(" ", FIG_SPACE)
-        unit = "G" if style == "compact" else "GB/s"
+        unit = "G" if style == "compact" else "GB"
     elif Bps >= 1_048_576:
         val = f"{Bps / 1_048_576:5.1f}".replace(" ", FIG_SPACE)
-        unit = "M" if style == "compact" else "MB/s"
+        unit = "M" if style == "compact" else "MB"
     elif Bps >= 1024:
         val = f"{Bps / 1024:5.1f}".replace(" ", FIG_SPACE)
-        unit = "K" if style == "compact" else "KB/s"
+        unit = "K" if style == "compact" else "KB"
     else:
         val = f"{Bps:5.1f}".replace(" ", FIG_SPACE)
-        unit = "B" if style == "compact" else (FIG_SPACE + "B/s")
+        unit = "B" if style == "compact" else (FIG_SPACE + "B")
     return f"{val} {unit}"
 
 # --- Discovery (SNMP Walk) ---
