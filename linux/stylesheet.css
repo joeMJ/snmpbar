@@ -10,18 +10,37 @@
     text-align: left;
 }
 
-/* Modusspezifische feste Mindestbreiten:
-   Garantiert eine absolut ruhige Top-Bar ohne horizontales Springen bei Lastschwankungen */
+/* Modusspezifische feste Breiten:
+   Lockt die Top-Bar auf den exakten Wert (min-width == max-width),
+   sodass bei Lastwechseln absolut 0 Pixel Verschiebung auftritt */
 .snmpbar-unit-both {
-    min-width: 14.5em;
+    min-width: 17.5em;
+    max-width: 17.5em;
 }
 
 .snmpbar-unit-bits {
-    min-width: 8.5em;
+    min-width: 10.5em;
+    max-width: 10.5em;
 }
 
 .snmpbar-unit-bytes {
-    min-width: 7.5em;
+    min-width: 9.0em;
+    max-width: 9.0em;
+}
+
+.snmpbar-box-both {
+    min-width: 35.5em;
+    max-width: 35.5em;
+}
+
+.snmpbar-box-bits {
+    min-width: 21.5em;
+    max-width: 21.5em;
+}
+
+.snmpbar-box-bytes {
+    min-width: 18.5em;
+    max-width: 18.5em;
 }
 
 .snmpbar-panel-box {

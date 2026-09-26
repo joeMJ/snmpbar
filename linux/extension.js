@@ -4,6 +4,7 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
+import Pango from 'gi://Pango';
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 import GObject from 'gi://GObject';
@@ -123,6 +124,7 @@ export default class SnmpBarExtension extends Extension {
                 this._updateColors();
             } else if (key === 'unit-display') {
                 const unitMode = this._settings.get_string('unit-display') || 'both';
+                this._labelBox.set_style_class_name(`snmpbar-label-box snmpbar-box-${unitMode}`);
                 this._downLabel.set_style_class_name(`snmpbar-down-label snmpbar-unit-${unitMode}`);
                 this._upLabel.set_style_class_name(`snmpbar-up-label snmpbar-unit-${unitMode}`);
             }
@@ -167,12 +169,13 @@ export default class SnmpBarExtension extends Extension {
         });
         this._panelBox.add_child(this._mainIcon);
 
+        const unitMode = this._settings.get_string('unit-display') || 'both';
+
         this._labelBox = new St.BoxLayout({
             vertical: false,
             y_align: Clutter.ActorAlign.CENTER,
+            style_class: `snmpbar-label-box snmpbar-box-${unitMode}`,
         });
-
-        const unitMode = this._settings.get_string('unit-display') || 'both';
 
         this._downLabel = new St.Label({
             text: '↓ --.-',
@@ -185,6 +188,15 @@ export default class SnmpBarExtension extends Extension {
             style_class: `snmpbar-up-label snmpbar-unit-${unitMode}`,
             y_align: Clutter.ActorAlign.CENTER,
         });
+
+        if (this._downLabel.clutter_text) {
+            this._downLabel.clutter_text.set_line_wrap(false);
+            this._downLabel.clutter_text.set_ellipsize(Pango.EllipsizeMode.NONE);
+        }
+        if (this._upLabel.clutter_text) {
+            this._upLabel.clutter_text.set_line_wrap(false);
+            this._upLabel.clutter_text.set_ellipsize(Pango.EllipsizeMode.NONE);
+        }
 
         this._labelBox.add_child(this._downLabel);
         this._labelBox.add_child(this._upLabel);
@@ -503,6 +515,7 @@ export default class SnmpBarExtension extends Extension {
 
     _updateUi(data) {
         const unitMode = this._settings.get_string('unit-display') || 'both';
+        this._labelBox.set_style_class_name(`snmpbar-label-box snmpbar-box-${unitMode}`);
         this._downLabel.set_style_class_name(`snmpbar-down-label snmpbar-unit-${unitMode}`);
         this._upLabel.set_style_class_name(`snmpbar-up-label snmpbar-unit-${unitMode}`);
 
