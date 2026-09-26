@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.snmpbar" path="/org/gnome/shell/extensions/snmpbar/">
+    
+    <key name="refresh-interval" type="i">
+      <default>5</default>
+      <summary>Abfrage-Intervall in Sekunden</summary>
+      <description>Intervall für zyklische SNMP-Abfragen.</description>
+    </key>
+
+    <key name="display-mode" type="s">
+      <default>'both'</default>
+      <summary>Darstellungsmodus</summary>
+      <description>Mögliche Werte: 'both' (Zahl &amp; Graph), 'numeric' (nur Zahl), 'graph' (nur Graph).</description>
+    </key>
+
+    <key name="show-in-bar-gateway" type="b">
+      <default>true</default>
+      <summary>Gateway in Top-Bar anzeigen</summary>
+      <description>Ob der Gateway-Durchsatz direkt in der GNOME Top-Bar angezeigt werden soll.</description>
+    </key>
+
+    <key name="show-in-bar-lb-total" type="b">
+      <default>true</default>
+      <summary>Load Balancer Gesamt in Top-Bar anzeigen</summary>
+      <description>Ob der aggregierte Load Balancer-Durchsatz direkt in der GNOME Top-Bar angezeigt werden soll.</description>
+    </key>
+
+    <key name="show-in-bar-lb-interfaces" type="b">
+      <default>false</default>
+      <summary>Load Balancer Interfaces in Top-Bar anzeigen</summary>
+      <description>Ob die einzelnen Load-Balancer-Interfaces direkt in der Top-Bar angezeigt werden sollen.</description>
+    </key>
+
+    <key name="config-file-path" type="s">
+      <default>''</default>
+      <summary>Pfad zu externer Konfigurationsdatei</summary>
+      <description>Optionaler benutzerdefinierter Pfad (Standard: ~/.config/snmpbar/config.json).</description>
+    </key>
+
+    <key name="config-data" type="s">
+      <default>'{}'</default>
+      <summary>Integrierte Konfigurationsdaten</summary>
+      <description>JSON-formatierte Host- und Interface-Konfigurationen.</description>
+    </key>
+
+  </schema>
+</schemalist>

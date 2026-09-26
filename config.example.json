@@ -1,0 +1,69 @@
+{
+  "refresh_interval_seconds": 5,
+  "gateway": {
+    "enabled": true,
+    "name": "Haupt-Gateway",
+    "host": "192.168.1.1",
+    "port": 161,
+    "snmp_version": "v2c",
+    "community": "public",
+    "v3_auth": {
+      "user": "",
+      "auth_proto": "SHA",
+      "auth_pass": "",
+      "priv_proto": "AES",
+      "priv_pass": ""
+    },
+    "interfaces": [
+      {
+        "id": "wan0",
+        "name": "WAN Uplink",
+        "index": 2,
+        "show_in_bar": true,
+        "show_graph": true
+      }
+    ]
+  },
+  "load_balancer": {
+    "enabled": true,
+    "name": "Core-LoadBalancer",
+    "host": "192.168.1.2",
+    "port": 161,
+    "snmp_version": "v2c",
+    "community": "public",
+    "v3_auth": {
+      "user": "",
+      "auth_proto": "SHA",
+      "auth_pass": "",
+      "priv_proto": "AES",
+      "priv_pass": ""
+    },
+    "total": {
+      "show_in_bar": true,
+      "show_graph": true
+    },
+    "interfaces": [
+      {
+        "id": "lb_eth0",
+        "name": "VIP Ingress (eth0)",
+        "index": 1,
+        "show_in_bar": false,
+        "show_graph": true
+      },
+      {
+        "id": "lb_eth1",
+        "name": "Backend Pool A (eth1)",
+        "index": 2,
+        "show_in_bar": false,
+        "show_graph": true
+      },
+      {
+        "id": "lb_eth2",
+        "name": "Backend Pool B (eth2)",
+        "index": 3,
+        "show_in_bar": false,
+        "show_graph": true
+      }
+    ]
+  }
+}

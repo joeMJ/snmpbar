@@ -1,47 +1,33 @@
-# Byte-compiled / optimized / DLL files
+# Lokale Konfigurationen und Passwörter / Secrets
+config.json
+config.yaml
+config.yml
+*.local.json
+*.local.yaml
+*.local.yml
+secrets.json
+secrets.yaml
+.env
+
+# Kompilierte GSettings Schemas
+gschemas.compiled
+linux/schemas/gschemas.compiled
+schemas/gschemas.compiled
+
+# Byte-compiled / Python-Reste (falls Helper genutzt werden)
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
-*.so
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Virtual environments
-.env
 .venv
-env/
 venv/
-ENV/
-env.bak/
-venv.bak/
 
-# Configuration with credentials / secrets
-config/config.yaml
-config/secrets.yaml
-*.local.yaml
-*.local.json
+# Build & Paketierung
+build/
+dist/
+*.zip
+*.tar.gz
 
-# IDE / Editor files
+# IDE & Editor Artefakte
 .idea/
 .vscode/
 *.swp
