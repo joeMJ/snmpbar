@@ -13,35 +13,80 @@
 /* Modusspezifische feste Breiten:
    Lockt die Top-Bar auf den exakten Wert (min-width == max-width),
    sodass bei Lastwechseln absolut 0 Pixel Verschiebung auftritt */
-.snmpbar-unit-both {
-    min-width: 17.5em;
-    max-width: 17.5em;
+
+/* Variante A: Ultra-kompakt (M, k, G) */
+.snmpbar-fmt-compact.snmpbar-mode-bits,
+.snmpbar-fmt-compact.snmpbar-mode-bytes {
+    min-width: 5.4em;
+    max-width: 5.4em;
+}
+.snmpbar-fmt-compact.snmpbar-mode-both {
+    min-width: 10.2em;
+    max-width: 10.2em;
+}
+.snmpbar-box-compact.snmpbar-boxmode-bits,
+.snmpbar-box-compact.snmpbar-boxmode-bytes {
+    min-width: 11.2em;
+    max-width: 11.2em;
+}
+.snmpbar-box-compact.snmpbar-boxmode-both {
+    min-width: 21.0em;
+    max-width: 21.0em;
 }
 
-.snmpbar-unit-bits {
-    min-width: 10.5em;
-    max-width: 10.5em;
+/* Variante B: Kompakte IT-Norm (Mb/s, MB/s) */
+.snmpbar-fmt-short.snmpbar-mode-bits,
+.snmpbar-fmt-short.snmpbar-mode-bytes {
+    min-width: 6.8em;
+    max-width: 6.8em;
+}
+.snmpbar-fmt-short.snmpbar-mode-both {
+    min-width: 13.0em;
+    max-width: 13.0em;
+}
+.snmpbar-box-short.snmpbar-boxmode-bits,
+.snmpbar-box-short.snmpbar-boxmode-bytes {
+    min-width: 14.0em;
+    max-width: 14.0em;
+}
+.snmpbar-box-short.snmpbar-boxmode-both {
+    min-width: 26.5em;
+    max-width: 26.5em;
 }
 
-.snmpbar-unit-bytes {
-    min-width: 9.0em;
-    max-width: 9.0em;
+/* Variante C: Schlankes Vollformat (Mbit/s) */
+.snmpbar-fmt-full.snmpbar-mode-bits {
+    min-width: 7.6em;
+    max-width: 7.6em;
+}
+.snmpbar-fmt-full.snmpbar-mode-bytes {
+    min-width: 6.8em;
+    max-width: 6.8em;
+}
+.snmpbar-fmt-full.snmpbar-mode-both {
+    min-width: 14.2em;
+    max-width: 14.2em;
+}
+.snmpbar-box-full.snmpbar-boxmode-bits {
+    min-width: 15.6em;
+    max-width: 15.6em;
+}
+.snmpbar-box-full.snmpbar-boxmode-bytes {
+    min-width: 14.0em;
+    max-width: 14.0em;
+}
+.snmpbar-box-full.snmpbar-boxmode-both {
+    min-width: 29.0em;
+    max-width: 29.0em;
 }
 
-.snmpbar-box-both {
-    min-width: 35.5em;
-    max-width: 35.5em;
-}
-
-.snmpbar-box-bits {
-    min-width: 21.5em;
-    max-width: 21.5em;
-}
-
-.snmpbar-box-bytes {
-    min-width: 18.5em;
-    max-width: 18.5em;
-}
+/* Fallback-Klassen zur Abwärtskompatibilität */
+.snmpbar-unit-both { min-width: 10.2em; max-width: 10.2em; }
+.snmpbar-unit-bits { min-width: 5.4em; max-width: 5.4em; }
+.snmpbar-unit-bytes { min-width: 5.4em; max-width: 5.4em; }
+.snmpbar-box-both { min-width: 21.0em; max-width: 21.0em; }
+.snmpbar-box-bits { min-width: 11.2em; max-width: 11.2em; }
+.snmpbar-box-bytes { min-width: 11.2em; max-width: 11.2em; }
 
 .snmpbar-panel-box {
     margin-left: 4px;

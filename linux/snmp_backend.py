@@ -195,11 +195,11 @@ def snmp_walk(host, community, root_oid, version=1, max_reps=500, timeout=2.0):
     s.close()
     return results
 
-# --- Formatierungs-Funktionen (Strikte Breitenstabilisierung mit Unicode Figure Space U+2007) ---
+# --- Formatierungs-Funktionen (A: Ultra-kompakt, B: Kompakte IT-Norm, C: Schlankes Vollformat) ---
 
 FIG_SPACE = "\u2007"
 
-def format_rate(bits_per_sec):
+def format_rate(bits_per_sec, style="full"):
     try:
         bps = float(bits_per_sec)
     except (ValueError, TypeError):
@@ -209,22 +209,22 @@ def format_rate(bits_per_sec):
 
     if bps >= 1_000_000_000_000:
         val = f"{bps / 1_000_000_000_000:5.1f}".replace(" ", FIG_SPACE)
-        unit = "Tbit/s"
+        unit = "T" if style == "compact" else ("Tb/s" if style == "short" else "Tbit/s")
     elif bps >= 1_000_000_000:
         val = f"{bps / 1_000_000_000:5.1f}".replace(" ", FIG_SPACE)
-        unit = "Gbit/s"
+        unit = "G" if style == "compact" else ("Gb/s" if style == "short" else "Gbit/s")
     elif bps >= 1_000_000:
         val = f"{bps / 1_000_000:5.1f}".replace(" ", FIG_SPACE)
-        unit = "Mbit/s"
+        unit = "M" if style == "compact" else ("Mb/s" if style == "short" else "Mbit/s")
     elif bps >= 1_000:
         val = f"{bps / 1_000:5.1f}".replace(" ", FIG_SPACE)
-        unit = "kbit/s"
+        unit = "k" if style == "compact" else ("kb/s" if style == "short" else "kbit/s")
     else:
         val = f"{bps:5.1f}".replace(" ", FIG_SPACE)
-        unit = FIG_SPACE + "bit/s"
+        unit = "b" if style == "compact" else (" b/s" if style == "short" else FIG_SPACE + "bit/s")
     return f"{val} {unit}"
 
-def format_bytes_rate(bytes_per_sec):
+def format_bytes_rate(bytes_per_sec, style="full"):
     try:
         Bps = float(bytes_per_sec)
     except (ValueError, TypeError):
@@ -234,19 +234,19 @@ def format_bytes_rate(bytes_per_sec):
 
     if Bps >= 1_099_511_627_776:
         val = f"{Bps / 1_099_511_627_776:5.1f}".replace(" ", FIG_SPACE)
-        unit = "TB/s"
+        unit = "T" if style == "compact" else "TB/s"
     elif Bps >= 1_073_741_824:
         val = f"{Bps / 1_073_741_824:5.1f}".replace(" ", FIG_SPACE)
-        unit = "GB/s"
+        unit = "G" if style == "compact" else "GB/s"
     elif Bps >= 1_048_576:
         val = f"{Bps / 1_048_576:5.1f}".replace(" ", FIG_SPACE)
-        unit = "MB/s"
+        unit = "M" if style == "compact" else "MB/s"
     elif Bps >= 1024:
         val = f"{Bps / 1024:5.1f}".replace(" ", FIG_SPACE)
-        unit = "KB/s"
+        unit = "K" if style == "compact" else "KB/s"
     else:
         val = f"{Bps:5.1f}".replace(" ", FIG_SPACE)
-        unit = FIG_SPACE + "B/s"
+        unit = "B" if style == "compact" else (FIG_SPACE + "B/s")
     return f"{val} {unit}"
 
 # --- Discovery (SNMP Walk) ---
@@ -402,10 +402,18 @@ def poll_connections(connections):
                 "status_str": "UP" if is_up else "DOWN",
                 "rx_bps": round(rx_bps),
                 "tx_bps": round(tx_bps),
-                "rx_formatted": format_rate(rx_bps),
-                "tx_formatted": format_rate(tx_bps),
-                "rx_bytes_formatted": format_bytes_rate(rx_bytes_sec),
-                "tx_bytes_formatted": format_bytes_rate(tx_bytes_sec)
+                "rx_formatted": format_rate(rx_bps, "full"),
+                "tx_formatted": format_rate(tx_bps, "full"),
+                "rx_bytes_formatted": format_bytes_rate(rx_bytes_sec, "full"),
+                "tx_bytes_formatted": format_bytes_rate(tx_bytes_sec, "full"),
+                "rx_compact": format_rate(rx_bps, "compact"),
+                "tx_compact": format_rate(tx_bps, "compact"),
+                "rx_bytes_compact": format_bytes_rate(rx_bytes_sec, "compact"),
+                "tx_bytes_compact": format_bytes_rate(tx_bytes_sec, "compact"),
+                "rx_short": format_rate(rx_bps, "short"),
+                "tx_short": format_rate(tx_bps, "short"),
+                "rx_bytes_short": format_bytes_rate(rx_bytes_sec, "short"),
+                "tx_bytes_short": format_bytes_rate(tx_bytes_sec, "short")
             })
             
         conn_results.append({
@@ -417,10 +425,18 @@ def poll_connections(connections):
             "total": {
                 "rx_bps": round(total_rx_bps),
                 "tx_bps": round(total_tx_bps),
-                "rx_formatted": format_rate(total_rx_bps),
-                "tx_formatted": format_rate(total_tx_bps),
-                "rx_bytes_formatted": format_bytes_rate(total_rx_bytes_sec),
-                "tx_bytes_formatted": format_bytes_rate(total_tx_bytes_sec)
+                "rx_formatted": format_rate(total_rx_bps, "full"),
+                "tx_formatted": format_rate(total_tx_bps, "full"),
+                "rx_bytes_formatted": format_bytes_rate(total_rx_bytes_sec, "full"),
+                "tx_bytes_formatted": format_bytes_rate(total_tx_bytes_sec, "full"),
+                "rx_compact": format_rate(total_rx_bps, "compact"),
+                "tx_compact": format_rate(total_tx_bps, "compact"),
+                "rx_bytes_compact": format_bytes_rate(total_rx_bytes_sec, "compact"),
+                "tx_bytes_compact": format_bytes_rate(total_tx_bytes_sec, "compact"),
+                "rx_short": format_rate(total_rx_bps, "short"),
+                "tx_short": format_rate(total_tx_bps, "short"),
+                "rx_bytes_short": format_bytes_rate(total_rx_bytes_sec, "short"),
+                "tx_bytes_short": format_bytes_rate(total_tx_bytes_sec, "short")
             },
             "interfaces": iface_results
         })

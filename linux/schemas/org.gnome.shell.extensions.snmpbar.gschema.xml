@@ -38,6 +38,12 @@
       <description>'both' (Bits und Bytes), 'bits' (nur Bits/s), 'bytes' (nur Bytes/s).</description>
     </key>
 
+    <key name="bar-unit-format" type="s">
+      <default>'compact'</default>
+      <summary>Top-Bar Einheiten-Format</summary>
+      <description>'compact' (Ultra-kompakt: M, k, G), 'short' (Kompakte IT-Norm: Mb/s, MB/s), 'full' (Schlankes Vollformat: Mbit/s).</description>
+    </key>
+
     <!-- Getrennte Farben für Bar-Text und Graphen -->
     <key name="bar-color-download" type="s">
       <default>'#ffffff'</default>

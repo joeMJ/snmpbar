@@ -209,7 +209,8 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         else if (curUnit === 'bytes') unitIdx = 2;
 
         const unitRow = new Adw.ComboRow({
-            title: _('Einheiten-Anzeige'),
+            title: _('Einheiten-Auswahl'),
+            subtitle: _('Wähle zwischen Bits/s, Bytes/s oder beidem'),
             model: unitModel,
             selected: unitIdx,
         });
@@ -218,6 +219,28 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
             settings.set_string('unit-display', map[unitRow.selected]);
         });
         unitGroup.add(unitRow);
+
+        const formatModel = Gtk.StringList.new([
+            _('Variante A: Ultra-kompakt (856.6 M / 6.3 M)'),
+            _('Variante B: Kompakte IT-Norm (856.6 Mb/s / 6.3 Mb/s)'),
+            _('Variante C: Schlankes Vollformat (856.6 Mbit/s)')
+        ]);
+        const curFormat = settings.get_string('bar-unit-format') || 'compact';
+        let formatIdx = 0;
+        if (curFormat === 'short') formatIdx = 1;
+        else if (curFormat === 'full') formatIdx = 2;
+
+        const formatRow = new Adw.ComboRow({
+            title: _('Top-Bar Darstellungsformat'),
+            subtitle: _('Wähle die gewünschte Einheitenbeschriftung in der Menüleiste'),
+            model: formatModel,
+            selected: formatIdx,
+        });
+        formatRow.connect('notify::selected', () => {
+            const map = ['compact', 'short', 'full'];
+            settings.set_string('bar-unit-format', map[formatRow.selected]);
+        });
+        unitGroup.add(formatRow);
 
         // --- Gruppe 3: Dropdown-Menü Einstellungen ---
         const menuGroup = new Adw.PreferencesGroup({

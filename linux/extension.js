@@ -122,11 +122,8 @@ export default class SnmpBarExtension extends Extension {
                 this._repositionIndicator();
             } else if (key.startsWith('bar-color') || key.startsWith('graph-color')) {
                 this._updateColors();
-            } else if (key === 'unit-display') {
-                const unitMode = this._settings.get_string('unit-display') || 'both';
-                this._labelBox.set_style_class_name(`snmpbar-label-box snmpbar-box-${unitMode}`);
-                this._downLabel.set_style_class_name(`snmpbar-down-label snmpbar-unit-${unitMode}`);
-                this._upLabel.set_style_class_name(`snmpbar-up-label snmpbar-unit-${unitMode}`);
+            } else if (key === 'unit-display' || key === 'bar-unit-format') {
+                this._applyLayoutClasses();
             }
             this._schedulePoll(1);
         });
@@ -169,23 +166,18 @@ export default class SnmpBarExtension extends Extension {
         });
         this._panelBox.add_child(this._mainIcon);
 
-        const unitMode = this._settings.get_string('unit-display') || 'both';
-
         this._labelBox = new St.BoxLayout({
             vertical: false,
             y_align: Clutter.ActorAlign.CENTER,
-            style_class: `snmpbar-label-box snmpbar-box-${unitMode}`,
         });
 
         this._downLabel = new St.Label({
             text: '↓ --.-',
-            style_class: `snmpbar-down-label snmpbar-unit-${unitMode}`,
             y_align: Clutter.ActorAlign.CENTER,
         });
 
         this._upLabel = new St.Label({
             text: '↑ --.-',
-            style_class: `snmpbar-up-label snmpbar-unit-${unitMode}`,
             y_align: Clutter.ActorAlign.CENTER,
         });
 
@@ -207,6 +199,7 @@ export default class SnmpBarExtension extends Extension {
 
         this._indicator.add_child(this._panelBox);
 
+        this._applyLayoutClasses();
         this._updateColors();
         this._addToPanel();
     }
@@ -222,6 +215,27 @@ export default class SnmpBarExtension extends Extension {
             this._indicator = null;
         }
         this._buildIndicator();
+    }
+
+    _applyLayoutClasses() {
+        const unitMode = this._settings.get_string('unit-display') || 'both';
+        const unitFmt = this._settings.get_string('bar-unit-format') || 'compact';
+
+        if (this._labelBox) {
+            this._labelBox.set_style_class_name(
+                `snmpbar-label-box snmpbar-box-${unitFmt} snmpbar-boxmode-${unitMode}`
+            );
+        }
+        if (this._downLabel) {
+            this._downLabel.set_style_class_name(
+                `snmpbar-down-label snmpbar-fmt-${unitFmt} snmpbar-mode-${unitMode}`
+            );
+        }
+        if (this._upLabel) {
+            this._upLabel.set_style_class_name(
+                `snmpbar-up-label snmpbar-fmt-${unitFmt} snmpbar-mode-${unitMode}`
+            );
+        }
     }
 
     _updateColors() {
@@ -253,33 +267,62 @@ export default class SnmpBarExtension extends Extension {
         if (h.tx.length > MAX_HISTORY) h.tx.shift();
     }
 
-    _formatText(metric, unitMode) {
+    _formatText(metric, unitMode, unitFmt = 'compact') {
         if (!metric) {
-            if (unitMode === 'bits') {
-                return { down: '↓   --.-  bit/s', up: '↑   --.-  bit/s', combined: '↓   --.-  bit/s    ↑   --.-  bit/s' };
-            } else if (unitMode === 'bytes') {
-                return { down: '↓   --.-  B/s', up: '↑   --.-  B/s', combined: '↓   --.-  B/s    ↑   --.-  B/s' };
+            if (unitFmt === 'compact') {
+                if (unitMode === 'bits') return { down: '↓   --.- b', up: '↑   --.- b', combined: '↓   --.- b    ↑   --.- b' };
+                if (unitMode === 'bytes') return { down: '↓   --.- B', up: '↑   --.- B', combined: '↓   --.- B    ↑   --.- B' };
+                return { down: '↓   --.- b (  --.- B)', up: '↑   --.- b (  --.- B)', combined: '↓   --.- b (  --.- B)    ↑   --.- b (  --.- B)' };
+            } else if (unitFmt === 'short') {
+                if (unitMode === 'bits') return { down: '↓   --.-  b/s', up: '↑   --.-  b/s', combined: '↓   --.-  b/s    ↑   --.-  b/s' };
+                if (unitMode === 'bytes') return { down: '↓   --.-  B/s', up: '↑   --.-  B/s', combined: '↓   --.-  B/s    ↑   --.-  B/s' };
+                return { down: '↓   --.-  b/s (  --.-  B/s)', up: '↑   --.-  b/s (  --.-  B/s)', combined: '↓   --.-  b/s (  --.-  B/s)    ↑   --.-  b/s (  --.-  B/s)' };
+            } else {
+                if (unitMode === 'bits') return { down: '↓   --.-  bit/s', up: '↑   --.-  bit/s', combined: '↓   --.-  bit/s    ↑   --.-  bit/s' };
+                if (unitMode === 'bytes') return { down: '↓   --.-  B/s', up: '↑   --.-  B/s', combined: '↓   --.-  B/s    ↑   --.-  B/s' };
+                return {
+                    down: '↓   --.-  bit/s (  --.-  B/s)',
+                    up: '↑   --.-  bit/s (  --.-  B/s)',
+                    combined: '↓   --.-  bit/s (  --.-  B/s)    ↑   --.-  bit/s (  --.-  B/s)'
+                };
             }
-            return {
-                down: '↓   --.-  bit/s (  --.-  B/s)',
-                up: '↑   --.-  bit/s (  --.-  B/s)',
-                combined: '↓   --.-  bit/s (  --.-  B/s)    ↑   --.-  bit/s (  --.-  B/s)'
-            };
+        }
+
+        let rx = '';
+        let tx = '';
+        let rxB = '';
+        let txB = '';
+
+        if (unitFmt === 'compact') {
+            rx = metric.rx_compact || metric.rx_formatted;
+            tx = metric.tx_compact || metric.tx_formatted;
+            rxB = metric.rx_bytes_compact || metric.rx_bytes_formatted;
+            txB = metric.tx_bytes_compact || metric.tx_bytes_formatted;
+        } else if (unitFmt === 'short') {
+            rx = metric.rx_short || metric.rx_formatted;
+            tx = metric.tx_short || metric.tx_formatted;
+            rxB = metric.rx_bytes_short || metric.rx_bytes_formatted;
+            txB = metric.tx_bytes_short || metric.tx_bytes_formatted;
+        } else {
+            rx = metric.rx_formatted;
+            tx = metric.tx_formatted;
+            rxB = metric.rx_bytes_formatted;
+            txB = metric.tx_bytes_formatted;
         }
 
         let down = '';
         let up = '';
 
         if (unitMode === 'bits') {
-            down = `↓ ${metric.rx_formatted}`;
-            up = `↑ ${metric.tx_formatted}`;
+            down = `↓ ${rx}`;
+            up = `↑ ${tx}`;
         } else if (unitMode === 'bytes') {
-            down = `↓ ${metric.rx_bytes_formatted}`;
-            up = `↑ ${metric.tx_bytes_formatted}`;
+            down = `↓ ${rxB}`;
+            up = `↑ ${txB}`;
         } else {
-            // 'both' (Standard)
-            down = `↓ ${metric.rx_formatted} (${metric.rx_bytes_formatted})`;
-            up = `↑ ${metric.tx_formatted} (${metric.tx_bytes_formatted})`;
+            // 'both'
+            down = `↓ ${rx} (${rxB})`;
+            up = `↑ ${tx} (${txB})`;
         }
 
         return { down, up, combined: `${down}    ${up}` };
@@ -514,10 +557,7 @@ export default class SnmpBarExtension extends Extension {
     }
 
     _updateUi(data) {
-        const unitMode = this._settings.get_string('unit-display') || 'both';
-        this._labelBox.set_style_class_name(`snmpbar-label-box snmpbar-box-${unitMode}`);
-        this._downLabel.set_style_class_name(`snmpbar-down-label snmpbar-unit-${unitMode}`);
-        this._upLabel.set_style_class_name(`snmpbar-up-label snmpbar-unit-${unitMode}`);
+        this._applyLayoutClasses();
 
         if (!data || data.status !== 'ok') {
             this._downLabel.set_text('↓  Offline');
@@ -557,6 +597,8 @@ export default class SnmpBarExtension extends Extension {
 
         const showNumbers = this._settings.get_boolean('show-numbers');
         const showGraph = this._settings.get_boolean('show-graph');
+        const unitMode = this._settings.get_string('unit-display') || 'both';
+        const unitFmt = this._settings.get_string('bar-unit-format') || 'compact';
 
         this._labelBox.visible = showNumbers;
         this._sparkline.visible = showGraph;
@@ -566,7 +608,7 @@ export default class SnmpBarExtension extends Extension {
         }
 
         if (showNumbers) {
-            const fmt = this._formatText(targetMetric, unitMode);
+            const fmt = this._formatText(targetMetric, unitMode, unitFmt);
             this._downLabel.set_text(fmt.down);
             this._upLabel.set_text(fmt.up);
         }
