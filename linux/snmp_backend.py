@@ -249,6 +249,28 @@ def format_bytes_rate(bytes_per_sec, style="full"):
         unit = "B" if style == "compact" else (FIG_SPACE + "B")
     return f"{val} {unit}"
 
+def format_uptime(timeticks):
+    try:
+        tt = int(timeticks)
+    except (ValueError, TypeError):
+        return ""
+    if tt <= 0:
+        return ""
+    total_sec = tt // 100
+    days = total_sec // 86400
+    rem = total_sec % 86400
+    hours = rem // 3600
+    mins = (rem % 3600) // 60
+
+    if days >= 2:
+        return f"{days} Tagen, {hours} Std."
+    elif days == 1:
+        return f"1 Tag, {hours} Std."
+    elif hours >= 1:
+        return f"{hours} Std., {mins} Min."
+    else:
+        return f"{mins} Min."
+
 # --- Discovery (SNMP Walk) ---
 
 def discover_interfaces(host, community, version_str="v2c"):
@@ -332,7 +354,7 @@ def poll_connections(connections):
         version = 1 if version_str == "v2c" else 0
         ifaces = conn.get("interfaces", [])
         
-        oids_to_query = []
+        oids_to_query = ["1.3.6.1.2.1.1.3.0"]
         for iface in ifaces:
             idx = iface["index"]
             if version == 1:
@@ -345,6 +367,9 @@ def poll_connections(connections):
             
         snmp_data = snmp_get_multiple(host, community, oids_to_query, version=version)
         is_online = bool(snmp_data)
+
+        uptime_ticks = snmp_data.get("1.3.6.1.2.1.1.3.0")
+        uptime_str = format_uptime(uptime_ticks) if uptime_ticks else ""
         
         total_rx_bps = 0.0
         total_tx_bps = 0.0
@@ -399,7 +424,7 @@ def poll_connections(connections):
                 "icon": iface.get("icon", "network-wired-symbolic"),
                 "show_graph": iface.get("show_graph", True),
                 "is_up": is_up,
-                "status_str": "UP" if is_up else "DOWN",
+                "status_str": "Online" if is_up else "Offline",
                 "rx_bps": round(rx_bps),
                 "tx_bps": round(tx_bps),
                 "rx_formatted": format_rate(rx_bps, "full"),
@@ -422,6 +447,9 @@ def poll_connections(connections):
             "host": host,
             "aggregated_name": agg_name,
             "is_online": is_online,
+            "uptime_ticks": uptime_ticks,
+            "uptime_str": uptime_str,
+            "uptime_formatted": f"Online seit {uptime_str}" if uptime_str else "",
             "total": {
                 "rx_bps": round(total_rx_bps),
                 "tx_bps": round(total_tx_bps),

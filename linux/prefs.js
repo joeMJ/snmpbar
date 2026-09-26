@@ -256,6 +256,13 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         settings.bind('show-dropdown-graphs', showDropGraphsRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         menuGroup.add(showDropGraphsRow);
 
+        const showUptimeRow = new Adw.SwitchRow({
+            title: _('Geräte-Laufzeit (Uptime) anzeigen'),
+            subtitle: _('Zeigt die Betriebszeit im Menü-Header (z. B. „Online seit 16 Tagen, 7 Std.“)'),
+        });
+        settings.bind('show-uptime', showUptimeRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        menuGroup.add(showUptimeRow);
+
         menuGroup.add(createColorRow(
             _('Dropdown-Schriftfarbe'),
             _('Kontrastreiche Textfarbe für das Menü'),
@@ -560,7 +567,7 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                                         data.discovered_interfaces.forEach(discIface => {
                                             const discRow = new Adw.ActionRow({
                                                 title: discIface.display_name,
-                                                subtitle: `Index: ${discIface.index} | Status: ${discIface.is_up ? 'UP' : 'DOWN'} | Speed: ${discIface.speed_mbps} Mbit/s`,
+                                                subtitle: `Index: ${discIface.index} | Status: ${discIface.is_up ? '{Online}' : '{Offline}'} | Speed: ${discIface.speed_mbps} Mbit`,
                                             });
 
                                             const isAdded = curIndices.has(discIface.index);

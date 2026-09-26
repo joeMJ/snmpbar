@@ -336,6 +336,7 @@ export default class SnmpBarExtension extends Extension {
         const graphDownColor = this._settings.get_string('graph-color-download') || '#3584e4';
         const graphUpColor = this._settings.get_string('graph-color-upload') || '#33d17a';
         const showDropdownGraphs = this._settings.get_boolean('show-dropdown-graphs');
+        const showUptime = this._settings.get_boolean('show-uptime');
         const unitMode = this._settings.get_string('unit-display') || 'both';
         const unitFmt = this._settings.get_string('bar-unit-format') || 'compact';
 
@@ -358,13 +359,13 @@ export default class SnmpBarExtension extends Extension {
                 menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
             }
 
-            // 1. Header (Verbindungsname & Host)
+            // 1. Header (Verbindungsname, Host & Uptime)
             const headerItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
             const headerBox = new St.BoxLayout({
                 style_class: 'snmpbar-menu-box',
-                vertical: false,
-                y_align: Clutter.ActorAlign.CENTER,
+                vertical: true,
             });
+            const titleRow = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER });
             const hostIcon = new St.Icon({
                 icon_name: 'network-server-symbolic',
                 icon_size: 16,
@@ -374,8 +375,30 @@ export default class SnmpBarExtension extends Extension {
                 text: `${conn.name} (${conn.host})`,
                 style: styleTitle,
             });
-            headerBox.add_child(hostIcon);
-            headerBox.add_child(headerLabel);
+            titleRow.add_child(hostIcon);
+            titleRow.add_child(headerLabel);
+            headerBox.add_child(titleRow);
+
+            if (showUptime && conn.uptime_formatted) {
+                const uptimeRow = new St.BoxLayout({
+                    vertical: false,
+                    y_align: Clutter.ActorAlign.CENTER,
+                    style: 'margin-left: 24px; margin-top: 2px;',
+                });
+                const uptimeIcon = new St.Icon({
+                    icon_name: 'preferences-system-time-symbolic',
+                    icon_size: 12,
+                    style: `margin-right: 5px; color: ${textColor}; opacity: 0.7;`,
+                });
+                const uptimeLabel = new St.Label({
+                    text: conn.uptime_formatted,
+                    style: `color: ${textColor}; font-size: 11px; opacity: 0.85; font-weight: 500;`,
+                });
+                uptimeRow.add_child(uptimeIcon);
+                uptimeRow.add_child(uptimeLabel);
+                headerBox.add_child(uptimeRow);
+            }
+
             headerItem.add_child(headerBox);
             menu.addMenuItem(headerItem);
 
@@ -449,20 +472,25 @@ export default class SnmpBarExtension extends Extension {
                         style: 'margin-top: 6px; margin-bottom: 4px;',
                     });
 
-                    // Kopfzeile: Icon + Name + Status [UP/DOWN]
+                    // Kopfzeile: Icon + Name + Status {Online}/{Offline}
                     const topRow = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER });
                     const icon = new St.Icon({
                         icon_name: iface.icon || 'network-wired-symbolic',
                         icon_size: 14,
                         style: `margin-right: 6px; color: ${textColor};`,
                     });
-                    const statusTag = iface.is_up ? '[UP]' : '[DOWN]';
                     const nameLabel = new St.Label({
-                        text: `${iface.name} ${statusTag}`,
+                        text: `${iface.name} `,
                         style: `font-weight: 600; color: ${textColor}; font-size: 12px;`,
+                    });
+                    const statusColor = iface.is_up ? '#26a269' : '#c01c28';
+                    const statusLabel = new St.Label({
+                        text: iface.is_up ? '{Online}' : '{Offline}',
+                        style: `font-weight: bold; color: ${statusColor}; font-size: 11px;`,
                     });
                     topRow.add_child(icon);
                     topRow.add_child(nameLabel);
+                    topRow.add_child(statusLabel);
                     singleIfaceBox.add_child(topRow);
 
                     // Großer Graph über den Schnittstellenwerten

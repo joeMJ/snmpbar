@@ -32,6 +32,12 @@
       <description>Ob vergrößerte Verlaufsgraphen für Gesamt- und Einzelschnittstellen im Menü gezeichnet werden sollen.</description>
     </key>
 
+    <key name="show-uptime" type="b">
+      <default>true</default>
+      <summary>Geräte-Laufzeit (Uptime) im Dropdown anzeigen</summary>
+      <description>Ob die Systemlaufzeit des Routers/Gateways (z. B. 'Online seit 16 Tagen, 7 Std.') im Menü angezeigt werden soll.</description>
+    </key>
+
     <key name="unit-display" type="s">
       <default>'both'</default>
       <summary>Einheiten-Formatierung</summary>
