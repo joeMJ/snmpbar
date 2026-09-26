@@ -320,7 +320,7 @@ def discover_interfaces(host, community, version_str="v2c"):
             "descr": str(descr),
             "name": str(names.get(f"1.3.6.1.2.1.31.1.1.1.1.{idx}", descr)),
             "alias": str(aliases.get(f"1.3.6.1.2.1.31.1.1.1.18.{idx}", "")),
-            "is_up": (op == 1) or (op == 7 and adm == 1),
+            "is_up": (op == 1),
             "speed_mbps": round((speeds.get(f"1.3.6.1.2.1.2.2.1.5.{idx}", 0) or 0) / 1_000_000, 1)
         }
         
@@ -475,10 +475,9 @@ def poll_connections(connections):
                     tx_bps = tx_bytes_sec * 8.0
 
             # Online-Erkennung:
-            # 1. Standard ifOperStatus == 1 (up)
-            # 2. ifOperStatus == 7 (lowerLayerDown bei WAN Bridge / Virtuellen Interfaces wie XDSL-1) wenn ifAdminStatus == 1
-            # 3. Wenn aktiver Durchsatz gemessen wird (rx_bps > 50 oder tx_bps > 50)
-            is_up = (oper_raw == 1) or (oper_raw == 7 and admin_raw == 1) or (rx_bps > 50 or tx_bps > 50)
+            # 1. Standard ifOperStatus == 1 (up) -> Online
+            # 2. Wenn aktiver Durchsatz gemessen wird (rx_bps > 50 oder tx_bps > 50) -> Online (z.B. WAN-Bridges wie XDSL-1)
+            is_up = (oper_raw == 1) or (rx_bps > 50 or tx_bps > 50)
 
             # Leitungs-Laufzeit ermitteln
             iface_uptime_str = ""
