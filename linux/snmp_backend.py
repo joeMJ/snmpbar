@@ -263,11 +263,11 @@ def format_uptime(timeticks):
     mins = (rem % 3600) // 60
 
     if days >= 2:
-        return f"{days} Tagen, {hours} Std."
+        return f"{days} Tagen, {hours:02d}:{mins:02d} Std."
     elif days == 1:
-        return f"1 Tag, {hours} Std."
+        return f"1 Tag, {hours:02d}:{mins:02d} Std."
     elif hours >= 1:
-        return f"{hours} Std., {mins} Min."
+        return f"{hours:02d}:{mins:02d} Std."
     else:
         return f"{mins} Min."
 
@@ -289,11 +289,11 @@ def format_lancom_duration(dur_str):
             return dur_str
             
         if days >= 2:
-            return f"seit {days} Tagen, {hours} Std."
+            return f"seit {days} Tagen, {hours:02d}:{mins:02d} Std."
         elif days == 1:
-            return f"seit 1 Tag, {hours} Std."
+            return f"seit 1 Tag, {hours:02d}:{mins:02d} Std."
         elif hours >= 1:
-            return f"seit {hours} Std., {mins} Min."
+            return f"seit {hours:02d}:{mins:02d} Std."
         else:
             return f"seit {mins} Min."
     except Exception:
@@ -393,6 +393,9 @@ def poll_connections(connections):
                 oids_to_query.append(f"1.3.6.1.2.1.2.2.1.16.{idx}")
             oids_to_query.append(f"1.3.6.1.2.1.2.2.1.8.{idx}")
             oids_to_query.append(f"1.3.6.1.2.1.2.2.1.9.{idx}")
+            oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.18.{idx}")
+            oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.1.{idx}")
+            oids_to_query.append(f"1.3.6.1.2.1.2.2.1.2.{idx}")
             
         snmp_data = snmp_get_multiple(host, community, oids_to_query, version=version)
         is_online = bool(snmp_data)
@@ -451,13 +454,19 @@ def poll_connections(connections):
             # Leitungs-Laufzeit ermitteln
             iface_uptime_str = ""
             if is_up:
-                name_upper = str(iface.get("name", "")).upper()
-                id_upper = str(iface.get("id", "")).upper()
-                # 1. Lancom Active Table Match
+                alias_snmp = str(snmp_data.get(f"1.3.6.1.2.1.31.1.1.1.18.{idx}", "")).upper()
+                name_snmp = str(snmp_data.get(f"1.3.6.1.2.1.31.1.1.1.1.{idx}", "")).upper()
+                descr_snmp = str(snmp_data.get(f"1.3.6.1.2.1.2.2.1.2.{idx}", "")).upper()
+                user_name = str(iface.get("name", "")).upper()
+                user_id = str(iface.get("id", "")).upper()
+                tokens = [alias_snmp, name_snmp, descr_snmp, user_name, user_id]
+
+                # 1. Lancom Active Table Match (sucht nach Übereinstimmung mit Peer-Name)
                 for p_name, p_dur in lancom_durations.items():
-                    if p_name in name_upper or p_name in id_upper or name_upper in p_name:
+                    if any(p_name and (p_name in tok or tok in p_name) for tok in tokens if tok):
                         iface_uptime_str = p_dur
                         break
+
                 # 2. Standard MIB-2 Fallback via ifLastChange oder sysUpTime
                 if not iface_uptime_str and uptime_ticks:
                     last_chg = snmp_data.get(f"1.3.6.1.2.1.2.2.1.9.{idx}", 0)
