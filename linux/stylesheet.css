@@ -50,3 +50,8 @@
 .snmpbar-menu-icon {
     margin-right: 6px;
 }
+
+.snmpbar-menu-sparkline {
+    margin-left: 8px;
+    margin-right: 4px;
+}

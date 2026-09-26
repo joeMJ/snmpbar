@@ -22,13 +22,19 @@ class SparklineGraph extends St.DrawingArea {
         });
         this._rxHistory = [];
         this._txHistory = [];
-        this._rxColor = [0.21, 0.52, 0.89, 0.95]; // Default Blue
-        this._txColor = [0.20, 0.82, 0.48, 0.95]; // Default Green
+        this._rxColor = [0.21, 0.52, 0.89, 0.95];
+        this._txColor = [0.20, 0.82, 0.48, 0.95];
     }
 
     setColors(rxHex, txHex) {
         this._rxColor = this._hexToRgba(rxHex, 0.95);
         this._txColor = this._hexToRgba(txHex, 0.95);
+        this.queue_repaint();
+    }
+
+    setHistory(rxList, txList) {
+        this._rxHistory = [...rxList];
+        this._txHistory = [...txList];
         this.queue_repaint();
     }
 
@@ -56,8 +62,7 @@ class SparklineGraph extends St.DrawingArea {
         const cr = this.get_context();
         const [w, h] = this.get_surface_size();
 
-        // Subtiler dunkler Hintergrundrahmen
-        cr.setSourceRGBA(0, 0, 0, 0.25);
+        cr.setSourceRGBA(0, 0, 0, 0.22);
         cr.rectangle(0, 0, w, h);
         cr.fill();
 
@@ -66,12 +71,12 @@ class SparklineGraph extends St.DrawingArea {
         const maxVal = Math.max(
             ...this._rxHistory,
             ...this._txHistory,
-            100000 // Mindestens 100 kbit/s als Referenz
+            50000
         );
 
         const step = w / (MAX_HISTORY - 1);
 
-        // 1. Download-Kurve
+        // Download
         cr.setLineWidth(1.6);
         cr.setSourceRGBA(...this._rxColor);
         const rxOffset = MAX_HISTORY - this._rxHistory.length;
@@ -83,7 +88,7 @@ class SparklineGraph extends St.DrawingArea {
         }
         cr.stroke();
 
-        // 2. Upload-Kurve
+        // Upload
         cr.setLineWidth(1.3);
         cr.setSourceRGBA(...this._txColor);
         const txOffset = MAX_HISTORY - this._txHistory.length;
@@ -105,6 +110,9 @@ export default class SnmpBarExtension extends Extension {
         this._timeoutId = null;
         this._isPolling = false;
         this._backendScript = GLib.build_filenamev([this.path, 'snmp_backend.py']);
+
+        this._totalHistory = { rx: [], tx: [] };
+        this._ifaceHistories = {};
 
         this._buildIndicator();
         this._schedulePoll(1);
@@ -150,14 +158,12 @@ export default class SnmpBarExtension extends Extension {
             vertical: false,
         });
 
-        // Minimalistisches Standard-Ubuntu-Icon
         this._mainIcon = new St.Icon({
             icon_name: 'network-transmit-receive-symbolic',
             style_class: 'system-status-icon',
         });
         this._panelBox.add_child(this._mainIcon);
 
-        // Zahlen-Labels (Schriftgröße erbt vom Panel, feste Mindestbreite gegen Wackeln)
         this._labelBox = new St.BoxLayout({
             vertical: false,
             y_align: Clutter.ActorAlign.CENTER,
@@ -179,7 +185,6 @@ export default class SnmpBarExtension extends Extension {
         this._labelBox.add_child(this._upLabel);
         this._panelBox.add_child(this._labelBox);
 
-        // Miniatur-Graph
         this._sparkline = new SparklineGraph(46, 20);
         this._panelBox.add_child(this._sparkline);
 
@@ -216,12 +221,18 @@ export default class SnmpBarExtension extends Extension {
         menu.removeAll();
 
         const textColor = this._settings.get_string('menu-text-color') || '#1a1a1a';
+        const downColor = this._settings.get_string('color-download') || '#3584e4';
+        const upColor = this._settings.get_string('color-upload') || '#33d17a';
+        const showDropdownGraphs = this._settings.get_boolean('show-dropdown-graphs');
+
         const styleText = `color: ${textColor}; font-weight: normal;`;
         const styleBold = `color: ${textColor}; font-weight: bold;`;
         const styleTitle = `color: ${textColor}; font-weight: 800; font-size: 13px;`;
 
-        // 1. Header (Router / Host)
+        // 1. Header (Verbindungsname & Host)
+        const connName = this._settings.get_string('connection-name') || 'Gateway';
         const hostName = data ? data.host : (this._settings.get_string('host') || '192.0.2.1');
+
         const headerItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
         const headerBox = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER });
         const hostIcon = new St.Icon({
@@ -230,7 +241,7 @@ export default class SnmpBarExtension extends Extension {
             style: `margin-right: 8px; color: ${textColor};`,
         });
         const headerLabel = new St.Label({
-            text: `Gateway: ${hostName}`,
+            text: `${connName} (${hostName})`,
             style: styleTitle,
         });
         headerBox.add_child(hostIcon);
@@ -240,11 +251,13 @@ export default class SnmpBarExtension extends Extension {
 
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // 2. Load-Balancer Gesamt
+        // 2. Aggregierte Leistung (Konfigurierbarer Name)
+        const aggName = this._settings.get_string('aggregated-name') || 'Load-Balancer Gesamt';
         const lbTotal = data ? data.load_balancer.total : null;
+
         const lbSectionItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
         const lbTitle = new St.Label({
-            text: 'Load-Balancer (Gesamtdurchsatz)',
+            text: aggName,
             style: styleBold,
         });
         lbSectionItem.add_child(lbTitle);
@@ -254,15 +267,26 @@ export default class SnmpBarExtension extends Extension {
         const lbUpText = lbTotal ? `↑ Upstream:   ${lbTotal.tx_formatted} (${lbTotal.tx_bytes_formatted})` : '↑ Upstream:   --';
 
         const lbRatesItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
-        const lbRatesBox = new St.BoxLayout({ vertical: true });
-        lbRatesBox.add_child(new St.Label({ text: `  ${lbDownText}`, style: styleText }));
-        lbRatesBox.add_child(new St.Label({ text: `  ${lbUpText}`, style: styleText }));
+        const lbRatesBox = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER });
+        const lbTextCol = new St.BoxLayout({ vertical: true });
+        lbTextCol.add_child(new St.Label({ text: `  ${lbDownText}`, style: styleText }));
+        lbTextCol.add_child(new St.Label({ text: `  ${lbUpText}`, style: styleText }));
+        lbRatesBox.add_child(lbTextCol);
+
+        // Mini-Graph für Gesamtleistung im Dropdown
+        if (showDropdownGraphs) {
+            const totalSpark = new SparklineGraph(54, 22);
+            totalSpark.setColors(downColor, upColor);
+            totalSpark.setHistory(this._totalHistory.rx, this._totalHistory.tx);
+            lbRatesBox.add_child(totalSpark);
+        }
+
         lbRatesItem.add_child(lbRatesBox);
         menu.addMenuItem(lbRatesItem);
 
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // 3. Dynamische Schnittstellen-Liste
+        // 3. Dynamische Schnittstellen mit konfigurierbarem Namen & Graphen
         const ifacesSectionItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
         const ifacesTitle = new St.Label({
             text: 'Schnittstellen',
@@ -281,7 +305,6 @@ export default class SnmpBarExtension extends Extension {
                 const ifaceItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
                 const ifaceBox = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER });
 
-                // Minimalistisches Symbolic Icon
                 const icon = new St.Icon({
                     icon_name: iface.icon || 'network-wired-symbolic',
                     icon_size: 15,
@@ -296,6 +319,19 @@ export default class SnmpBarExtension extends Extension {
                     style: styleText,
                 });
                 ifaceBox.add_child(ifaceLabel);
+
+                // Mini-Graph für die Schnittstelle im Dropdown
+                if (showDropdownGraphs && iface.show_graph !== false) {
+                    const ifaceSpark = new SparklineGraph(46, 18);
+                    ifaceSpark.setColors(downColor, upColor);
+                    if (this._ifaceHistories[iface.index]) {
+                        ifaceSpark.setHistory(
+                            this._ifaceHistories[iface.index].rx,
+                            this._ifaceHistories[iface.index].tx
+                        );
+                    }
+                    ifaceBox.add_child(ifaceSpark);
+                }
 
                 ifaceItem.add_child(ifaceBox);
                 menu.addMenuItem(ifaceItem);
@@ -370,26 +406,40 @@ export default class SnmpBarExtension extends Extension {
         }
 
         const total = data.load_balancer.total;
+        const interfaces = data.load_balancer.interfaces;
 
-        // Sichtbarkeiten prüfen
+        // Historien puffern
+        this._totalHistory.rx.push(total.rx_bps);
+        if (this._totalHistory.rx.length > MAX_HISTORY) this._totalHistory.rx.shift();
+        this._totalHistory.tx.push(total.tx_bps);
+        if (this._totalHistory.tx.length > MAX_HISTORY) this._totalHistory.tx.shift();
+
+        for (const iface of interfaces) {
+            if (!this._ifaceHistories[iface.index]) {
+                this._ifaceHistories[iface.index] = { rx: [], tx: [] };
+            }
+            const h = this._ifaceHistories[iface.index];
+            h.rx.push(iface.rx_bps);
+            if (h.rx.length > MAX_HISTORY) h.rx.shift();
+            h.tx.push(iface.tx_bps);
+            if (h.tx.length > MAX_HISTORY) h.tx.shift();
+        }
+
         const showNumbers = this._settings.get_boolean('show-numbers');
         const showGraph = this._settings.get_boolean('show-graph');
 
         this._labelBox.visible = showNumbers;
         this._sparkline.visible = showGraph;
 
-        // Sparkline mit Daten füttern
         if (showGraph) {
             this._sparkline.addSample(total.rx_bps, total.tx_bps);
         }
 
-        // Top-Bar Zahlen mit fester Dezimalstelle
         if (showNumbers) {
             this._downLabel.set_text(`↓ ${total.rx_formatted}`);
             this._upLabel.set_text(`↑ ${total.tx_formatted}`);
         }
 
-        // Menü neu aufbauen mit satten Kontrast-Farben
         this._buildMenu(data);
     }
 }

@@ -2,6 +2,18 @@
 <schemalist>
   <schema id="org.gnome.shell.extensions.snmpbar" path="/org/gnome/shell/extensions/snmpbar/">
     
+    <key name="connection-name" type="s">
+      <default>'Gateway'</default>
+      <summary>Name der SNMP-Verbindung / des Geräts</summary>
+      <description>Bezeichnung des Geräts (z.B. Gateway oder Haupt-Gateway).</description>
+    </key>
+
+    <key name="aggregated-name" type="s">
+      <default>'Load-Balancer Gesamt'</default>
+      <summary>Bezeichnung der aggregierten Leistung</summary>
+      <description>Name der rechnerisch aggregierten Gesamtsumme der Schnittstellen.</description>
+    </key>
+
     <key name="host" type="s">
       <default>'192.0.2.1'</default>
       <summary>Router / Gateway IP</summary>
@@ -44,6 +56,12 @@
       <description>Ob Download/Upload-Werte als Text im Panel stehen sollen.</description>
     </key>
 
+    <key name="show-dropdown-graphs" type="b">
+      <default>true</default>
+      <summary>Graphen im Dropdown-Menü anzeigen</summary>
+      <description>Ob Mini-Graphen für Gesamt- und Einzelschnittstellen im Menü gezeichnet werden sollen.</description>
+    </key>
+
     <key name="color-download" type="s">
       <default>'#3584e4'</default>
       <summary>Farbe für Download / Downstream</summary>
@@ -63,7 +81,7 @@
     </key>
 
     <key name="interfaces-json" type="s">
-      <default>'[{"id":"vdsl","name":"VDSL (INTERNET)","index":65,"icon":"network-wired-symbolic","show_in_bar":false},{"id":"wwan","name":"5G (INET_WWAN)","index":93,"icon":"network-cellular-signal-excellent-symbolic","show_in_bar":false},{"id":"gpon","name":"Glasfaser (GPON)","index":400010,"icon":"network-transmit-receive-symbolic","show_in_bar":false}]'</default>
+      <default>'[{"id":"vdsl","name":"VDSL (INTERNET)","index":65,"icon":"network-wired-symbolic","show_in_bar":false,"show_graph":true},{"id":"wwan","name":"5G (INET_WWAN)","index":93,"icon":"network-cellular-signal-excellent-symbolic","show_in_bar":false,"show_graph":true},{"id":"gpon","name":"Glasfaser (GPON)","index":400010,"icon":"network-transmit-receive-symbolic","show_in_bar":false,"show_graph":true}]'</default>
       <summary>Konfigurierte Interfaces</summary>
       <description>JSON-Array der überwachten Interfaces.</description>
     </key>

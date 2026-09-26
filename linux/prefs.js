@@ -10,20 +10,139 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         const backendScript = GLib.build_filenamev([this.path, 'snmp_backend.py']);
 
         // ==========================================
-        // SEITE 1: Allgemein & Bar-Design
+        // SEITE 1: Design & Anzeige
         // ==========================================
-        const generalPage = new Adw.PreferencesPage({
-            title: _('Allgemein & Bar'),
+        const displayPage = new Adw.PreferencesPage({
+            title: _('Design & Anzeige'),
             icon_name: 'preferences-desktop-display-symbolic',
         });
-        window.add(generalPage);
+        window.add(displayPage);
 
-        // --- Gruppe: SNMP-Verbindung ---
+        // --- Gruppe 1: Top-Bar Darstellung ---
+        const barGroup = new Adw.PreferencesGroup({
+            title: _('GNOME Top-Bar'),
+            description: _('Position und Darstellungsweise im oberen Panel'),
+        });
+        displayPage.add(barGroup);
+
+        const posModel = Gtk.StringList.new([
+            _('Rechts (neben System-Icons)'),
+            _('Mitte (neben der Uhr)'),
+            _('Links (bei Aktivitäten)')
+        ]);
+        const curPos = settings.get_string('panel-position');
+        let posIdx = 0;
+        if (curPos === 'center') posIdx = 1;
+        else if (curPos === 'left') posIdx = 2;
+
+        const posRow = new Adw.ComboRow({
+            title: _('Position im Panel'),
+            model: posModel,
+            selected: posIdx,
+        });
+        posRow.connect('notify::selected', () => {
+            const map = ['right', 'center', 'left'];
+            settings.set_string('panel-position', map[posRow.selected]);
+        });
+        barGroup.add(posRow);
+
+        const showNumRow = new Adw.SwitchRow({
+            title: _('Zahlenwerte in der Bar anzeigen'),
+            subtitle: _('Schriftgröße passt sich automatisch der Uhr an'),
+        });
+        settings.bind('show-numbers', showNumRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        barGroup.add(showNumRow);
+
+        const showGraphRow = new Adw.SwitchRow({
+            title: _('Mini-Graph in der Bar anzeigen'),
+            subtitle: _('Cairo-Echtzeit-Sparkline für Traffic-Verlauf im Panel'),
+        });
+        settings.bind('show-graph', showGraphRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        barGroup.add(showGraphRow);
+
+        // --- Gruppe 2: Dropdown-Menü Einstellungen ---
+        const menuGroup = new Adw.PreferencesGroup({
+            title: _('Dropdown-Menü'),
+            description: _('Optionen für das aufklappbare Detailmenü'),
+        });
+        displayPage.add(menuGroup);
+
+        const showDropGraphsRow = new Adw.SwitchRow({
+            title: _('Graphen im Dropdown-Menü anzeigen'),
+            subtitle: _('Zeigt Mini-Verlaufskurven für Gesamtleistung und Schnittstellen im Menü'),
+        });
+        settings.bind('show-dropdown-graphs', showDropGraphsRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        menuGroup.add(showDropGraphsRow);
+
+        const menuTextColorRow = new Adw.EntryRow({
+            title: _('Schriftfarbe im Dropdown (Hex)'),
+            text: settings.get_string('menu-text-color'),
+        });
+        menuTextColorRow.connect('changed', (entry) => {
+            if (entry.text.startsWith('#') && entry.text.length >= 4) {
+                settings.set_string('menu-text-color', entry.text);
+            }
+        });
+        menuGroup.add(menuTextColorRow);
+
+        // --- Gruppe 3: Farben ---
+        const styleGroup = new Adw.PreferencesGroup({
+            title: _('Farben für Datenströme'),
+            description: _('Farbkodierung für Download und Upload (Zahlen und Graphen)'),
+        });
+        displayPage.add(styleGroup);
+
+        const downColorRow = new Adw.EntryRow({
+            title: _('Download-Farbe (Hex)'),
+            text: settings.get_string('color-download'),
+        });
+        downColorRow.connect('changed', (entry) => {
+            if (entry.text.startsWith('#') && entry.text.length >= 4) {
+                settings.set_string('color-download', entry.text);
+            }
+        });
+        styleGroup.add(downColorRow);
+
+        const upColorRow = new Adw.EntryRow({
+            title: _('Upload-Farbe (Hex)'),
+            text: settings.get_string('color-upload'),
+        });
+        upColorRow.connect('changed', (entry) => {
+            if (entry.text.startsWith('#') && entry.text.length >= 4) {
+                settings.set_string('color-upload', entry.text);
+            }
+        });
+        styleGroup.add(upColorRow);
+
+        // ==========================================
+        // SEITE 2: SNMP-Verbindung & Schnittstellen
+        // ==========================================
+        const snmpPage = new Adw.PreferencesPage({
+            title: _('SNMP & Schnittstellen'),
+            icon_name: 'network-workgroup-symbolic',
+        });
+        window.add(snmpPage);
+
+        // --- Gruppe 1: Verbindungsdaten & Bezeichnungen ---
         const connGroup = new Adw.PreferencesGroup({
             title: _('SNMP-Verbindung'),
-            description: _('Verbindungsdaten für das Gateway / den Router'),
+            description: _('Verbindungsdaten und Bezeichnungen für dieses Gateway'),
         });
-        generalPage.add(connGroup);
+        snmpPage.add(connGroup);
+
+        const connNameRow = new Adw.EntryRow({
+            title: _('Verbindungs- / Gerätename'),
+            text: settings.get_string('connection-name'),
+        });
+        connNameRow.connect('changed', (entry) => settings.set_string('connection-name', entry.text));
+        connGroup.add(connNameRow);
+
+        const aggNameRow = new Adw.EntryRow({
+            title: _('Name der aggregierten Leistung'),
+            text: settings.get_string('aggregated-name'),
+        });
+        aggNameRow.connect('changed', (entry) => settings.set_string('aggregated-name', entry.text));
+        connGroup.add(aggNameRow);
 
         const hostRow = new Adw.EntryRow({
             title: _('Router / Host IP'),
@@ -63,96 +182,12 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         settings.bind('refresh-interval', intervalRow, 'value', Gio.SettingsBindFlags.DEFAULT);
         connGroup.add(intervalRow);
 
-        // --- Gruppe: Bar-Position & Darstellung ---
-        const barGroup = new Adw.PreferencesGroup({
-            title: _('GNOME Top-Bar Integration'),
-            description: _('Position und Sichtbarkeit im oberen Panel'),
+        // --- Gruppe 2: Schnittstellenverwaltung mit Editierbarkeit ---
+        const ifacesGroup = new Adw.PreferencesGroup({
+            title: _('Konfigurierte Schnittstellen'),
+            description: _('Schnittstellennamen editieren und Anzeigeoptionen anpassen'),
         });
-        generalPage.add(barGroup);
-
-        const posModel = Gtk.StringList.new([
-            _('Rechts (neben System-Icons)'),
-            _('Mitte (neben der Uhr)'),
-            _('Links (bei Aktivitäten)')
-        ]);
-        const curPos = settings.get_string('panel-position');
-        let posIdx = 0;
-        if (curPos === 'center') posIdx = 1;
-        else if (curPos === 'left') posIdx = 2;
-
-        const posRow = new Adw.ComboRow({
-            title: _('Position im Panel'),
-            model: posModel,
-            selected: posIdx,
-        });
-        posRow.connect('notify::selected', () => {
-            const map = ['right', 'center', 'left'];
-            settings.set_string('panel-position', map[posRow.selected]);
-        });
-        barGroup.add(posRow);
-
-        const showNumRow = new Adw.SwitchRow({
-            title: _('Zahlenwerte in der Bar anzeigen'),
-            subtitle: _('Schriftgröße passt sich automatisch der Uhr an'),
-        });
-        settings.bind('show-numbers', showNumRow, 'active', Gio.SettingsBindFlags.DEFAULT);
-        barGroup.add(showNumRow);
-
-        const showGraphRow = new Adw.SwitchRow({
-            title: _('Mini-Graph in der Bar anzeigen'),
-            subtitle: _('Cairo-Echtzeit-Sparkline für Traffic-Verlauf'),
-        });
-        settings.bind('show-graph', showGraphRow, 'active', Gio.SettingsBindFlags.DEFAULT);
-        barGroup.add(showGraphRow);
-
-        // --- Gruppe: Farben & Styling ---
-        const styleGroup = new Adw.PreferencesGroup({
-            title: _('Farben & Design'),
-            description: _('Farbanpassungen für Zahlen, Graphen und Dropdown'),
-        });
-        generalPage.add(styleGroup);
-
-        const downColorRow = new Adw.EntryRow({
-            title: _('Download-Farbe (Hex)'),
-            text: settings.get_string('color-download'),
-        });
-        downColorRow.connect('changed', (entry) => {
-            if (entry.text.startsWith('#') && entry.text.length >= 4) {
-                settings.set_string('color-download', entry.text);
-            }
-        });
-        styleGroup.add(downColorRow);
-
-        const upColorRow = new Adw.EntryRow({
-            title: _('Upload-Farbe (Hex)'),
-            text: settings.get_string('color-upload'),
-        });
-        upColorRow.connect('changed', (entry) => {
-            if (entry.text.startsWith('#') && entry.text.length >= 4) {
-                settings.set_string('color-upload', entry.text);
-            }
-        });
-        styleGroup.add(upColorRow);
-
-        const menuTextColorRow = new Adw.EntryRow({
-            title: _('Dropdown-Schriftfarbe (Hex)'),
-            text: settings.get_string('menu-text-color'),
-        });
-        menuTextColorRow.connect('changed', (entry) => {
-            if (entry.text.startsWith('#') && entry.text.length >= 4) {
-                settings.set_string('menu-text-color', entry.text);
-            }
-        });
-        styleGroup.add(menuTextColorRow);
-
-        // ==========================================
-        // SEITE 2: Schnittstellen & Discovery (SNMP Walk)
-        // ==========================================
-        const ifacesPage = new Adw.PreferencesPage({
-            title: _('Schnittstellen & Discovery'),
-            icon_name: 'network-workgroup-symbolic',
-        });
-        window.add(ifacesPage);
+        snmpPage.add(ifacesGroup);
 
         const loadInterfaces = () => {
             try {
@@ -166,17 +201,10 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
             settings.set_string('interfaces-json', JSON.stringify(list));
         };
 
-        // Gruppe: Aktuell konfigurierte Interfaces
-        const activeGroup = new Adw.PreferencesGroup({
-            title: _('Aktive Überwachung'),
-            description: _('Konfigurierte Schnittstellen für den Load Balancer'),
-        });
-        ifacesPage.add(activeGroup);
-
         let activeRows = [];
         const clearActiveRows = () => {
             for (const r of activeRows) {
-                activeGroup.remove(r);
+                ifacesGroup.remove(r);
             }
             activeRows = [];
         };
@@ -187,57 +215,85 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
 
             if (list.length === 0) {
                 const emptyRow = new Adw.ActionRow({
-                    title: _('Keine Interfaces konfiguriert'),
-                    subtitle: _('Nutze die Discovery unten, um Schnittstellen hinzuzufügen.'),
+                    title: _('Keine Schnittstellen konfiguriert'),
+                    subtitle: _('Führe die Discovery unten aus, um Schnittstellen hinzuzufügen.'),
                 });
-                activeGroup.add(emptyRow);
+                ifacesGroup.add(emptyRow);
                 activeRows.push(emptyRow);
                 return;
             }
 
             list.forEach((item, index) => {
-                const row = new Adw.ActionRow({
+                const expander = new Adw.ExpanderRow({
                     title: item.name || `Index ${item.index}`,
                     subtitle: `SNMP ifIndex: ${item.index} | Icon: ${item.icon || 'network-wired-symbolic'}`,
+                    show_enable_switch: false,
                 });
 
-                const barSwitch = new Gtk.Switch({
-                    active: !!item.show_in_bar,
-                    valign: Gtk.Align.CENTER,
-                    tooltip_text: _('Separat in der Top-Bar anzeigen'),
+                // 1. Name editieren
+                const nameRow = new Adw.EntryRow({
+                    title: _('Schnittstellen-Name'),
+                    text: item.name || '',
                 });
-                barSwitch.connect('notify::active', () => {
-                    item.show_in_bar = barSwitch.active;
+                nameRow.connect('changed', (entry) => {
+                    item.name = entry.text;
+                    expander.title = entry.text || `Index ${item.index}`;
                     saveInterfaces(list);
                 });
-                row.add_suffix(barSwitch);
+                expander.add_row(nameRow);
 
+                // 2. Schalter: In Bar anzeigen
+                const barRow = new Adw.SwitchRow({
+                    title: _('In GNOME Top-Bar anzeigen'),
+                    active: !!item.show_in_bar,
+                });
+                barRow.connect('notify::active', () => {
+                    item.show_in_bar = barRow.active;
+                    saveInterfaces(list);
+                });
+                expander.add_row(barRow);
+
+                // 3. Schalter: Graph im Dropdown anzeigen
+                const graphRow = new Adw.SwitchRow({
+                    title: _('Graph im Dropdown-Menü anzeigen'),
+                    active: item.show_graph !== false,
+                });
+                graphRow.connect('notify::active', () => {
+                    item.show_graph = graphRow.active;
+                    saveInterfaces(list);
+                });
+                expander.add_row(graphRow);
+
+                // 4. Löschen
+                const delRow = new Adw.ActionRow({
+                    title: _('Schnittstelle entfernen'),
+                });
                 const delBtn = new Gtk.Button({
                     icon_name: 'user-trash-symbolic',
                     valign: Gtk.Align.CENTER,
                     has_frame: false,
-                    tooltip_text: _('Schnittstelle entfernen'),
                 });
                 delBtn.connect('clicked', () => {
                     list.splice(index, 1);
                     saveInterfaces(list);
                     renderActiveInterfaces();
                 });
-                row.add_suffix(delBtn);
+                delRow.add_suffix(delBtn);
+                expander.add_row(delRow);
 
-                activeGroup.add(row);
-                activeRows.push(row);
+                ifacesGroup.add(expander);
+                activeRows.push(expander);
             });
         };
 
         renderActiveInterfaces();
 
-        // Gruppe: Discovery (SNMP Walk)
+        // --- Gruppe 3: Discovery (SNMP Walk) ---
         const discoveryGroup = new Adw.PreferencesGroup({
             title: _('Schnittstellen-Erkennung (SNMP Walk)'),
-            description: _('Sucht automatisch alle verfügbaren Ports und Schnittstellen des Routers'),
+            description: _('Sucht live alle verfügbaren Ports und Schnittstellen des Routers'),
         });
-        ifacesPage.add(discoveryGroup);
+        snmpPage.add(discoveryGroup);
 
         const walkButtonRow = new Adw.ActionRow({
             title: _('Jetzt SNMP Walk ausführen'),
@@ -262,7 +318,7 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
             title: _('Gefundene Schnittstellen'),
             visible: false,
         });
-        ifacesPage.add(resultsGroup);
+        snmpPage.add(resultsGroup);
 
         let resultRows = [];
         const clearResultRows = () => {
@@ -324,6 +380,7 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                                             index: iface.index,
                                             icon: iface.suggested_icon || 'network-wired-symbolic',
                                             show_in_bar: false,
+                                            show_graph: true,
                                         });
                                         saveInterfaces(updatedList);
                                         addBtn.label = _('Hinzugefügt');
