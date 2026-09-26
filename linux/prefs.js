@@ -1,6 +1,7 @@
 import { ExtensionPreferences, gettext as _ } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 import Adw from 'gi://Adw';
 import Gtk from 'gi://Gtk';
+import Gdk from 'gi://Gdk';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
@@ -8,6 +9,62 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const settings = this.getSettings();
         const backendScript = GLib.build_filenamev([this.path, 'snmp_backend.py']);
+
+        // Helper: Farb-Zeile mit Hex-Input und interaktivem Colorpicker-Button
+        const createColorRow = (title, subtitle, key, defaultHex) => {
+            const row = new Adw.ActionRow({
+                title: title,
+                subtitle: subtitle,
+            });
+
+            const currentHex = settings.get_string(key) || defaultHex;
+
+            const entry = new Gtk.Entry({
+                text: currentHex,
+                max_length: 7,
+                width_chars: 8,
+                valign: Gtk.Align.CENTER,
+            });
+
+            const dialog = new Gtk.ColorDialog({ with_alpha: false });
+            const colorBtn = new Gtk.ColorDialogButton({
+                dialog: dialog,
+                valign: Gtk.Align.CENTER,
+            });
+
+            const updateButtonFromHex = (hex) => {
+                if (hex && hex.startsWith('#') && hex.length === 7) {
+                    const rgba = new Gdk.RGBA();
+                    if (rgba.parse(hex)) {
+                        colorBtn.set_rgba(rgba);
+                    }
+                }
+            };
+
+            updateButtonFromHex(currentHex);
+
+            entry.connect('changed', () => {
+                const hex = entry.text;
+                if (hex && hex.startsWith('#') && hex.length === 7) {
+                    settings.set_string(key, hex);
+                    updateButtonFromHex(hex);
+                }
+            });
+
+            colorBtn.connect('notify::rgba', () => {
+                const rgba = colorBtn.get_rgba();
+                const r = Math.round(rgba.red * 255).toString(16).padStart(2, '0');
+                const g = Math.round(rgba.green * 255).toString(16).padStart(2, '0');
+                const b = Math.round(rgba.blue * 255).toString(16).padStart(2, '0');
+                const hex = `#${r}${g}${b}`;
+                entry.text = hex;
+                settings.set_string(key, hex);
+            });
+
+            row.add_suffix(entry);
+            row.add_suffix(colorBtn);
+            return row;
+        };
 
         // Helper: Connections laden & speichern
         const loadConnections = () => {
@@ -17,7 +74,6 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                 if (Array.isArray(list) && list.length > 0) return list;
             } catch (e) {}
 
-            // Fallback auf initiale Standard-Verbindung
             return [{
                 id: 'conn_1',
                 name: settings.get_string('connection-name') || 'Gateway',
@@ -63,7 +119,7 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         });
         displayPage.add(barGroup);
 
-        // Top-Bar Quelle auswählen (Punkt a)
+        // Top-Bar Quelle auswählen
         const conns = loadConnections();
         const sourceKeys = [];
         const sourceLabels = [];
@@ -99,7 +155,7 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         });
         barGroup.add(sourceRow);
 
-        // Position: Rechts, Mitte (neben der Uhr), Links
+        // Position: Rechts, Mitte, Links
         const posModel = Gtk.StringList.new([
             _('Rechts (neben System-Icons)'),
             _('Mitte (neben der Uhr)'),
@@ -135,7 +191,35 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         settings.bind('show-graph', showGraphRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         barGroup.add(showGraphRow);
 
-        // --- Gruppe 2: Dropdown-Menü Einstellungen ---
+        // --- Gruppe 2: Einheiten-Formatierung (Punkt c) ---
+        const unitGroup = new Adw.PreferencesGroup({
+            title: _('Einheiten & Formatierung'),
+            description: _('Wähle die gewünschte Darstellung der Durchsatzwerte'),
+        });
+        displayPage.add(unitGroup);
+
+        const unitModel = Gtk.StringList.new([
+            _('Beides: Mbit/s und MB/s (Standard)'),
+            _('Nur Bits/s (kbit/s, Mbit/s, Gbit/s)'),
+            _('Nur Bytes/s (KB/s, MB/s, GB/s)')
+        ]);
+        const curUnit = settings.get_string('unit-display') || 'both';
+        let unitIdx = 0;
+        if (curUnit === 'bits') unitIdx = 1;
+        else if (curUnit === 'bytes') unitIdx = 2;
+
+        const unitRow = new Adw.ComboRow({
+            title: _('Einheiten-Anzeige'),
+            model: unitModel,
+            selected: unitIdx,
+        });
+        unitRow.connect('notify::selected', () => {
+            const map = ['both', 'bits', 'bytes'];
+            settings.set_string('unit-display', map[unitRow.selected]);
+        });
+        unitGroup.add(unitRow);
+
+        // --- Gruppe 3: Dropdown-Menü Einstellungen ---
         const menuGroup = new Adw.PreferencesGroup({
             title: _('Dropdown-Menü'),
             description: _('Optionen für das aufklappbare Detailmenü'),
@@ -149,48 +233,50 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         settings.bind('show-dropdown-graphs', showDropGraphsRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         menuGroup.add(showDropGraphsRow);
 
-        const menuTextColorRow = new Adw.EntryRow({
-            title: _('Dropdown-Schriftfarbe (Hex)'),
-            text: settings.get_string('menu-text-color'),
-        });
-        menuTextColorRow.connect('changed', (entry) => {
-            if (entry.text.startsWith('#') && entry.text.length >= 4) {
-                settings.set_string('menu-text-color', entry.text);
-            }
-        });
-        menuGroup.add(menuTextColorRow);
+        menuGroup.add(createColorRow(
+            _('Dropdown-Schriftfarbe'),
+            _('Kontrastreiche Textfarbe für das Menü'),
+            'menu-text-color',
+            '#1a1a1a'
+        ));
 
-        // --- Gruppe 3: Farben ---
-        const styleGroup = new Adw.PreferencesGroup({
-            title: _('Farben für Datenströme'),
-            description: _('Farbkodierung für Download und Upload (Zahlen und Graphen)'),
+        // --- Gruppe 4: Farben mit Colorpicker (Punkte a & b) ---
+        const colorGroup = new Adw.PreferencesGroup({
+            title: _('Farben für Datenströme & Graphen'),
+            description: _('Farben für die Top-Bar und Verlaufskurven (mit interaktivem Colorpicker)'),
         });
-        displayPage.add(styleGroup);
+        displayPage.add(colorGroup);
 
-        const downColorRow = new Adw.EntryRow({
-            title: _('Download-Farbe (Hex)'),
-            text: settings.get_string('color-download'),
-        });
-        downColorRow.connect('changed', (entry) => {
-            if (entry.text.startsWith('#') && entry.text.length >= 4) {
-                settings.set_string('color-download', entry.text);
-            }
-        });
-        styleGroup.add(downColorRow);
+        colorGroup.add(createColorRow(
+            _('Top-Bar Download-Textfarbe'),
+            _('Standard: Weiß für dunkle Menüleiste'),
+            'bar-color-download',
+            '#ffffff'
+        ));
 
-        const upColorRow = new Adw.EntryRow({
-            title: _('Upload-Farbe (Hex)'),
-            text: settings.get_string('color-upload'),
-        });
-        upColorRow.connect('changed', (entry) => {
-            if (entry.text.startsWith('#') && entry.text.length >= 4) {
-                settings.set_string('color-upload', entry.text);
-            }
-        });
-        styleGroup.add(upColorRow);
+        colorGroup.add(createColorRow(
+            _('Top-Bar Upload-Textfarbe'),
+            _('Standard: Extrem helles Grau'),
+            'bar-color-upload',
+            '#d0d0d0'
+        ));
+
+        colorGroup.add(createColorRow(
+            _('Download-Graphfarbe'),
+            _('Farbe der Download-Verlaufskurve'),
+            'graph-color-download',
+            '#3584e4'
+        ));
+
+        colorGroup.add(createColorRow(
+            _('Upload-Graphfarbe'),
+            _('Farbe der Upload-Verlaufskurve'),
+            'graph-color-upload',
+            '#33d17a'
+        ));
 
         // ==========================================
-        // SEITE 2: SNMP-Verbindungen & Schnittstellen (Punkt c)
+        // SEITE 2: SNMP-Verbindungen & Schnittstellen
         // ==========================================
         const snmpPage = new Adw.PreferencesPage({
             title: _('SNMP & Schnittstellen'),
@@ -198,7 +284,6 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         });
         window.add(snmpPage);
 
-        // Header-Gruppe mit "+ Neue Verbindung hinzufügen"
         const headerGroup = new Adw.PreferencesGroup({
             title: _('SNMP-Geräte & Verbindungen'),
             description: _('Hinterlege ein oder mehrere Gateways/Router und deren Schnittstellen'),
@@ -217,7 +302,6 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         addConnRow.add_suffix(addConnBtn);
         headerGroup.add(addConnRow);
 
-        // Container für Verbindungs-Zeilen
         const connsGroup = new Adw.PreferencesGroup();
         snmpPage.add(connsGroup);
 
@@ -240,7 +324,6 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                     show_enable_switch: false,
                 });
 
-                // Nach oben verschieben Button (▲)
                 if (cIdx > 0) {
                     const upBtn = new Gtk.Button({
                         icon_name: 'go-up-symbolic',
@@ -258,7 +341,6 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                     connExpander.add_suffix(upBtn);
                 }
 
-                // Nach unten verschieben Button (▼)
                 if (cIdx < list.length - 1) {
                     const downBtn = new Gtk.Button({
                         icon_name: 'go-down-symbolic',
@@ -276,7 +358,6 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                     connExpander.add_suffix(downBtn);
                 }
 
-                // Löschen-Button (nur wenn mehr als 1 Verbindung)
                 if (list.length > 1) {
                     const delConnBtn = new Gtk.Button({
                         icon_name: 'user-trash-symbolic',
@@ -291,8 +372,6 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                     });
                     connExpander.add_suffix(delConnBtn);
                 }
-
-                // --- Felder innerhalb des Expanders ---
 
                 // 1. Verbindungsname
                 const nameRow = new Adw.EntryRow({
@@ -369,7 +448,6 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                         show_enable_switch: false,
                     });
 
-                    // Name editieren (Punkt 3)
                     const ifaceNameRow = new Adw.EntryRow({
                         title: _('Schnittstellen-Name'),
                         text: iface.name || '',
@@ -381,7 +459,6 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                     });
                     ifaceExpander.add_row(ifaceNameRow);
 
-                    // Graph-Schalter
                     const ifaceGraphRow = new Adw.SwitchRow({
                         title: _('Graph im Dropdown anzeigen'),
                         active: iface.show_graph !== false,
@@ -392,7 +469,6 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                     });
                     ifaceExpander.add_row(ifaceGraphRow);
 
-                    // Schnittstelle löschen
                     const delIfaceRow = new Adw.ActionRow({ title: _('Schnittstelle entfernen') });
                     const delIfaceBtn = new Gtk.Button({
                         icon_name: 'user-trash-symbolic',
@@ -410,7 +486,7 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                     connExpander.add_row(ifaceExpander);
                 });
 
-                // Walk-Discovery für diese Verbindung
+                // Walk-Discovery
                 const walkRow = new Adw.ActionRow({
                     title: _('SNMP Walk für dieses Gerät'),
                     subtitle: _('Sucht live alle Schnittstellen auf diesem Host'),
@@ -427,7 +503,6 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                 walkRow.add_suffix(walkBtn);
                 connExpander.add_row(walkRow);
 
-                // Container für Walk-Ergebnisse
                 const walkResultsExpander = new Adw.ExpanderRow({
                     title: _('Gefundene Schnittstellen'),
                     visible: false,

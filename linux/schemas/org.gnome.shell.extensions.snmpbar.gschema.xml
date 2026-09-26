@@ -32,22 +32,54 @@
       <description>Ob vergrößerte Verlaufsgraphen für Gesamt- und Einzelschnittstellen im Menü gezeichnet werden sollen.</description>
     </key>
 
-    <key name="color-download" type="s">
-      <default>'#3584e4'</default>
-      <summary>Farbe für Download / Downstream</summary>
-      <description>Hex-Farbwert für Download-Label und Graph.</description>
+    <key name="unit-display" type="s">
+      <default>'both'</default>
+      <summary>Einheiten-Formatierung</summary>
+      <description>'both' (Bits und Bytes), 'bits' (nur Bits/s), 'bytes' (nur Bytes/s).</description>
     </key>
 
-    <key name="color-upload" type="s">
+    <!-- Getrennte Farben für Bar-Text und Graphen -->
+    <key name="bar-color-download" type="s">
+      <default>'#ffffff'</default>
+      <summary>Textfarbe Download in der Bar</summary>
+      <description>Standard: Weiß (#ffffff) für dunkle Top-Bar.</description>
+    </key>
+
+    <key name="bar-color-upload" type="s">
+      <default>'#d0d0d0'</default>
+      <summary>Textfarbe Upload in der Bar</summary>
+      <description>Standard: Extrem helles Grau (#d0d0d0).</description>
+    </key>
+
+    <key name="graph-color-download" type="s">
+      <default>'#3584e4'</default>
+      <summary>Graph-Farbe Download</summary>
+      <description>Standard: Blau (#3584e4).</description>
+    </key>
+
+    <key name="graph-color-upload" type="s">
       <default>'#33d17a'</default>
-      <summary>Farbe für Upload / Upstream</summary>
-      <description>Hex-Farbwert für Upload-Label und Graph.</description>
+      <summary>Graph-Farbe Upload</summary>
+      <description>Standard: Grün (#33d17a).</description>
     </key>
 
     <key name="menu-text-color" type="s">
       <default>'#1a1a1a'</default>
       <summary>Schriftfarbe im Dropdown-Menü</summary>
       <description>Hex-Farbcode für kontrastreiche Darstellung (Standard: Dunkel/Schwarz).</description>
+    </key>
+
+    <!-- Legacy Farb-Keys zur Abwärtskompatibilität -->
+    <key name="color-download" type="s">
+      <default>'#3584e4'</default>
+      <summary>Legacy Download Farbe</summary>
+      <description>Fallback.</description>
+    </key>
+
+    <key name="color-upload" type="s">
+      <default>'#33d17a'</default>
+      <summary>Legacy Upload Farbe</summary>
+      <description>Fallback.</description>
     </key>
 
     <!-- Rückwärtskompatible Einzelfelder -->
