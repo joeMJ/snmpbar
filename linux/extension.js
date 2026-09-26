@@ -516,7 +516,7 @@ export default class SnmpBarExtension extends Extension {
 
             // 2. Aggregierte Gesamtleistung (nur wenn aktiv oder standardmäßig bei mehr als 1 Interface)
             const ifaces = conn.interfaces || [];
-            const showAggregated = conn.show_aggregated !== undefined
+            const showAggregated = typeof conn.show_aggregated === 'boolean'
                 ? conn.show_aggregated
                 : (ifaces.length > 1);
 

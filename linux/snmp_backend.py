@@ -536,12 +536,16 @@ def poll_connections(connections):
                 "tx_bytes_short": format_bytes_rate(tx_bytes_sec, "short")
             })
             
+        show_agg = conn.get("show_aggregated")
+        if show_agg is None:
+            show_agg = (len(ifaces) > 1)
+
         conn_results.append({
             "id": conn_id,
             "name": conn_name,
             "host": host,
             "aggregated_name": agg_name,
-            "show_aggregated": conn.get("show_aggregated"),
+            "show_aggregated": show_agg,
             "is_online": is_online,
             "uptime_ticks": uptime_ticks,
             "uptime_str": uptime_str,

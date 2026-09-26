@@ -173,7 +173,7 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         const sourceLabels = [];
 
         conns.forEach(c => {
-            const hasAgg = c.show_aggregated !== undefined
+            const hasAgg = typeof c.show_aggregated === 'boolean'
                 ? c.show_aggregated
                 : ((c.interfaces || []).length > 1);
 
@@ -634,7 +634,7 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                 connExpander.add_row(aggRow);
 
                 // 2b. Schalter für Aggregierte Gesamtleistung
-                const defaultAggActive = conn.show_aggregated !== undefined
+                const defaultAggActive = typeof conn.show_aggregated === 'boolean'
                     ? conn.show_aggregated
                     : ((conn.interfaces || []).length > 1);
 
