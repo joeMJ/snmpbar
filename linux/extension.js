@@ -406,19 +406,22 @@ export default class SnmpBarExtension extends Extension {
 
         const isDarkMode = (this._interfaceSettings && this._interfaceSettings.get_string('color-scheme') === 'prefer-dark');
 
-        let textColor = this._getStr('menu-text-color', '#1a1a1a');
-        if (isDarkMode && (textColor === '#1a1a1a' || textColor.toLowerCase() === '#000000')) {
-            textColor = '#f6f6f6';
-        }
+        let textColor, graphDownColor, graphUpColor, graphBgColor;
 
-        const graphDownColor = this._getStr('dropdown-graph-color-download',
-                               this._getStr('graph-color-download', '#3584e4'));
-        const graphUpColor = this._getStr('dropdown-graph-color-upload',
-                             this._getStr('graph-color-upload', '#33d17a'));
-
-        let graphBgColor = this._getStr('dropdown-graph-bg-color', '#00000018');
-        if (isDarkMode && graphBgColor === '#00000018') {
-            graphBgColor = '#ffffff18';
+        if (isDarkMode) {
+            textColor = this._getStr('dropdown-dark-text-color', '#f6f6f6');
+            graphDownColor = this._getStr('dropdown-dark-graph-color-download',
+                             this._getStr('dropdown-graph-color-download', '#3584e4'));
+            graphUpColor = this._getStr('dropdown-dark-graph-color-upload',
+                           this._getStr('dropdown-graph-color-upload', '#33d17a'));
+            graphBgColor = this._getStr('dropdown-dark-graph-bg-color', '#00000040');
+        } else {
+            textColor = this._getStr('menu-text-color', '#1a1a1a');
+            graphDownColor = this._getStr('dropdown-graph-color-download',
+                             this._getStr('graph-color-download', '#3584e4'));
+            graphUpColor = this._getStr('dropdown-graph-color-upload',
+                           this._getStr('graph-color-upload', '#33d17a'));
+            graphBgColor = this._getStr('dropdown-graph-bg-color', '#00000018');
         }
         const showDropdownGraphs = this._getBool('show-dropdown-graphs', true);
         const showUptime = this._getBool('show-uptime', true);
@@ -569,7 +572,9 @@ export default class SnmpBarExtension extends Extension {
                         text: `${iface.name} `,
                         style: `font-weight: 600; color: ${textColor}; font-size: 12px;`,
                     });
-                    const statusColor = iface.is_up ? '#26a269' : '#c01c28';
+                    const statusColor = iface.is_up
+                        ? (isDarkMode ? '#33d17a' : '#26a269')
+                        : (isDarkMode ? '#f66151' : '#c01c28');
                     const statusLabel = new St.Label({
                         text: iface.is_up ? '{Online}' : '{Offline}',
                         style: `font-weight: bold; color: ${statusColor}; font-size: 11px;`,

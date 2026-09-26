@@ -123,6 +123,31 @@
       <description>Hex-Farbcode für kontrastreiche Darstellung (Standard: Dunkel/Schwarz).</description>
     </key>
 
+    <!-- Dropdown-Farben für Dunkles Design (GNOME Dark Mode) -->
+    <key name="dropdown-dark-text-color" type="s">
+      <default>'#f6f6f6'</default>
+      <summary>Schriftfarbe im Dropdown-Menü (Dunkles Design)</summary>
+      <description>Hex-Farbcode für dunklen Hintergrund (Standard: Fast Weiß #f6f6f6).</description>
+    </key>
+
+    <key name="dropdown-dark-graph-color-download" type="s">
+      <default>'#3584e4'</default>
+      <summary>Dropdown Graph Download-Farbe (Dunkles Design)</summary>
+      <description>Download-Kurvenfarbe im dunklen Dropdown-Menü.</description>
+    </key>
+
+    <key name="dropdown-dark-graph-color-upload" type="s">
+      <default>'#33d17a'</default>
+      <summary>Dropdown Graph Upload-Farbe (Dunkles Design)</summary>
+      <description>Upload-Kurvenfarbe im dunklen Dropdown-Menü.</description>
+    </key>
+
+    <key name="dropdown-dark-graph-bg-color" type="s">
+      <default>'#00000040'</default>
+      <summary>Hintergrundfarbe der Graphen im Dropdown-Menü (Dunkles Design)</summary>
+      <description>Hex-Farbcode inkl. optionaler Transparenz für dunklen Menühintergrund (Standard: #00000040).</description>
+    </key>
+
     <!-- Legacy Farb-Keys zur Abwärtskompatibilität -->
     <key name="color-download" type="s">
       <default>'#3584e4'</default>

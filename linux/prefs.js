@@ -396,42 +396,81 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
             true
         ));
 
-        // Gruppe 2: Dropdown-Menü Farben
-        const dropColorGroup = new Adw.PreferencesGroup({
-            title: _('Dropdown-Menü'),
-            description: _('Farben für Texte, Verlaufskurven und Hintergründe im Detailmenü'),
+        // Gruppe 2: Dropdown-Menü Farben (Helles Design)
+        const dropLightColorGroup = new Adw.PreferencesGroup({
+            title: _('Dropdown-Menü (Helles Design)'),
+            description: _('Farben bei aktivem hellen GNOME-Design (helle Menüoberfläche)'),
         });
-        colorPage.add(dropColorGroup);
+        colorPage.add(dropLightColorGroup);
 
-        dropColorGroup.add(createColorRow(
-            _('Dropdown-Schriftfarbe'),
-            _('Textfarbe für das Menü (im Dark Mode automatisch invertiert)'),
+        dropLightColorGroup.add(createColorRow(
+            _('Schriftfarbe (Hell)'),
+            _('Textfarbe für hellen Menühintergrund (Standard: Dunkel/Schwarz)'),
             'menu-text-color',
             '#1a1a1a',
             false
         ));
 
-        dropColorGroup.add(createColorRow(
-            _('Dropdown-Graph Download'),
-            _('Farbe der großen Verlaufskurven im Menü'),
+        dropLightColorGroup.add(createColorRow(
+            _('Graph Download (Hell)'),
+            _('Farbe der Download-Verlaufskurven im hellen Menü'),
             'dropdown-graph-color-download',
             '#3584e4',
             false
         ));
 
-        dropColorGroup.add(createColorRow(
-            _('Dropdown-Graph Upload'),
-            _('Farbe der großen Verlaufskurven im Menü'),
+        dropLightColorGroup.add(createColorRow(
+            _('Graph Upload (Hell)'),
+            _('Farbe der Upload-Verlaufskurven im hellen Menü'),
             'dropdown-graph-color-upload',
             '#33d17a',
             false
         ));
 
-        dropColorGroup.add(createColorRow(
-            _('Dropdown-Graph Hintergrund'),
-            _('Hintergrundfarbe oder Transparenz der großen Verlaufskurven'),
+        dropLightColorGroup.add(createColorRow(
+            _('Graph Hintergrund (Hell)'),
+            _('Hintergrundfarbe oder Transparenz der Verlaufskurven (Standard: Dezent dunkel/transparent)'),
             'dropdown-graph-bg-color',
             '#00000018',
+            true
+        ));
+
+        // Gruppe 3: Dropdown-Menü Farben (Dunkles Design)
+        const dropDarkColorGroup = new Adw.PreferencesGroup({
+            title: _('Dropdown-Menü (Dunkles Design)'),
+            description: _('Farben bei aktivem dunklen GNOME-Design (dunkle Menüoberfläche)'),
+        });
+        colorPage.add(dropDarkColorGroup);
+
+        dropDarkColorGroup.add(createColorRow(
+            _('Schriftfarbe (Dunkel)'),
+            _('Textfarbe für dunklen Menühintergrund (Standard: Fast Weiß)'),
+            'dropdown-dark-text-color',
+            '#f6f6f6',
+            false
+        ));
+
+        dropDarkColorGroup.add(createColorRow(
+            _('Graph Download (Dunkel)'),
+            _('Farbe der Download-Verlaufskurven im dunklen Menü'),
+            'dropdown-dark-graph-color-download',
+            '#3584e4',
+            false
+        ));
+
+        dropDarkColorGroup.add(createColorRow(
+            _('Graph Upload (Dunkel)'),
+            _('Farbe der Upload-Verlaufskurven im dunklen Menü'),
+            'dropdown-dark-graph-color-upload',
+            '#33d17a',
+            false
+        ));
+
+        dropDarkColorGroup.add(createColorRow(
+            _('Graph Hintergrund (Dunkel)'),
+            _('Hintergrundfarbe oder Transparenz der Verlaufskurven (Standard: Dezent abgedunkeltes Inset)'),
+            'dropdown-dark-graph-bg-color',
+            '#00000040',
             true
         ));
 
