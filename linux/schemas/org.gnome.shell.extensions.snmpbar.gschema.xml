@@ -69,15 +69,39 @@
       <description>Standard: Extrem helles Grau (#d0d0d0).</description>
     </key>
 
+    <key name="bar-graph-color-download" type="s">
+      <default>'#3584e4'</default>
+      <summary>Mini-Graph Download-Farbe in der Top-Bar</summary>
+      <description>Standard: Blau (#3584e4).</description>
+    </key>
+
+    <key name="bar-graph-color-upload" type="s">
+      <default>'#33d17a'</default>
+      <summary>Mini-Graph Upload-Farbe in der Top-Bar</summary>
+      <description>Standard: Grün (#33d17a).</description>
+    </key>
+
+    <key name="dropdown-graph-color-download" type="s">
+      <default>'#3584e4'</default>
+      <summary>Dropdown Graph Download-Farbe</summary>
+      <description>Standard: Blau (#3584e4).</description>
+    </key>
+
+    <key name="dropdown-graph-color-upload" type="s">
+      <default>'#33d17a'</default>
+      <summary>Dropdown Graph Upload-Farbe</summary>
+      <description>Standard: Grün (#33d17a).</description>
+    </key>
+
     <key name="graph-color-download" type="s">
       <default>'#3584e4'</default>
-      <summary>Graph-Farbe Download</summary>
+      <summary>Legacy Graph-Farbe Download</summary>
       <description>Standard: Blau (#3584e4).</description>
     </key>
 
     <key name="graph-color-upload" type="s">
       <default>'#33d17a'</default>
-      <summary>Graph-Farbe Upload</summary>
+      <summary>Legacy Graph-Farbe Upload</summary>
       <description>Standard: Grün (#33d17a).</description>
     </key>
 

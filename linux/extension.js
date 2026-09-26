@@ -120,7 +120,7 @@ export default class SnmpBarExtension extends Extension {
         this._settingsChangedId = this._settings.connect('changed', (s, key) => {
             if (key === 'panel-position') {
                 this._repositionIndicator();
-            } else if (key.startsWith('bar-color') || key.startsWith('graph-color')) {
+            } else if (key.includes('color')) {
                 this._updateColors();
             } else if (key === 'unit-display' || key === 'bar-unit-format') {
                 this._applyLayoutClasses();
@@ -246,10 +246,17 @@ export default class SnmpBarExtension extends Extension {
         this._downLabel.set_style(`color: ${barDownColor};`);
         this._upLabel.set_style(`color: ${barUpColor};`);
 
-        // Graph-Farben (Default: Blau und Grün)
-        const graphDownColor = this._settings.get_string('graph-color-download') || '#3584e4';
-        const graphUpColor = this._settings.get_string('graph-color-upload') || '#33d17a';
-        this._sparkline.setColors(graphDownColor, graphUpColor);
+        // Top-Bar Graph-Farben (Default: Blau und Grün)
+        const barGraphDownColor = this._settings.get_string('bar-graph-color-download') ||
+                                  this._settings.get_string('graph-color-download') || '#3584e4';
+        const barGraphUpColor = this._settings.get_string('bar-graph-color-upload') ||
+                                this._settings.get_string('graph-color-upload') || '#33d17a';
+        this._sparkline.setColors(barGraphDownColor, barGraphUpColor);
+
+        // Auch Dropdown-Menü bei Farbänderung direkt neu rendern
+        if (this._lastData) {
+            this._buildMenu(this._lastData);
+        }
     }
 
     _getOrCreateHistory(key) {
@@ -329,12 +336,15 @@ export default class SnmpBarExtension extends Extension {
     }
 
     _buildMenu(data) {
+        this._lastData = data;
         const menu = this._indicator.menu;
         menu.removeAll();
 
         const textColor = this._settings.get_string('menu-text-color') || '#1a1a1a';
-        const graphDownColor = this._settings.get_string('graph-color-download') || '#3584e4';
-        const graphUpColor = this._settings.get_string('graph-color-upload') || '#33d17a';
+        const graphDownColor = this._settings.get_string('dropdown-graph-color-download') ||
+                               this._settings.get_string('graph-color-download') || '#3584e4';
+        const graphUpColor = this._settings.get_string('dropdown-graph-color-upload') ||
+                             this._settings.get_string('graph-color-upload') || '#33d17a';
         const showDropdownGraphs = this._settings.get_boolean('show-dropdown-graphs');
         const showUptime = this._settings.get_boolean('show-uptime');
         const showIfaceUptime = this._settings.get_boolean('show-iface-uptime');

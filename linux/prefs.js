@@ -10,6 +10,26 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         const settings = this.getSettings();
         const backendScript = GLib.build_filenamev([this.path, 'snmp_backend.py']);
 
+        // CSS Provider für GTK-Anzeige (Breitere Dropdown-Menüs / Popovers)
+        try {
+            const cssProvider = new Gtk.CssProvider();
+            cssProvider.load_from_string(`
+                popover.menu contents {
+                    min-width: 440px;
+                }
+                row.combo .suffixes {
+                    min-width: 250px;
+                }
+            `);
+            Gtk.StyleContext.add_provider_for_display(
+                Gdk.Display.get_default(),
+                cssProvider,
+                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            );
+        } catch (e) {
+            console.warn('[snmpbar] Konnte CSS-Provider für Preferences nicht laden:', e);
+        }
+
         // Helper: Farb-Zeile mit Hex-Input und interaktivem Colorpicker-Button
         const createColorRow = (title, subtitle, key, defaultHex) => {
             const row = new Adw.ActionRow({
@@ -126,11 +146,19 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
 
         conns.forEach(c => {
             sourceKeys.push(`${c.id}:total`);
-            sourceLabels.push(`[${c.name}] ${c.aggregated_name || 'Gesamtsumme'}`);
+            if (conns.length > 1) {
+                sourceLabels.push(`${c.aggregated_name || 'Gesamtsumme'} — [${c.name}]`);
+            } else {
+                sourceLabels.push(`${c.aggregated_name || 'Gesamtsumme'}`);
+            }
 
             (c.interfaces || []).forEach(iface => {
                 sourceKeys.push(`if_${iface.index}`);
-                sourceLabels.push(`[${c.name}] ${iface.name}`);
+                if (conns.length > 1) {
+                    sourceLabels.push(`${iface.name} — [${c.name}]`);
+                } else {
+                    sourceLabels.push(`${iface.name}`);
+                }
             });
         });
 
@@ -176,6 +204,20 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
             settings.set_string('panel-position', map[posRow.selected]);
         });
         barGroup.add(posRow);
+
+        // Abfrage-Intervall
+        const intervalRow = new Adw.SpinRow({
+            title: _('Abfrage-Intervall (Sekunden)'),
+            subtitle: _('Häufigkeit der SNMP-Aktualisierung (1 bis 60 Sekunden)'),
+            adjustment: new Gtk.Adjustment({
+                lower: 1,
+                upper: 60,
+                step_increment: 1,
+                page_increment: 5,
+            }),
+        });
+        settings.bind('refresh-interval', intervalRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        barGroup.add(intervalRow);
 
         const showNumRow = new Adw.SwitchRow({
             title: _('Zahlenwerte in der Bar anzeigen'),
@@ -277,10 +319,10 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
             '#1a1a1a'
         ));
 
-        // --- Gruppe 4: Farben mit Colorpicker (Punkte a & b) ---
+        // --- Gruppe 4: Farben mit Colorpicker (Getrennte Top-Bar- und Dropdown-Farben) ---
         const colorGroup = new Adw.PreferencesGroup({
             title: _('Farben für Datenströme & Graphen'),
-            description: _('Farben für die Top-Bar und Verlaufskurven (mit interaktivem Colorpicker)'),
+            description: _('Getrennte Farbkonfiguration für Top-Bar und Dropdown (mit interaktivem Colorpicker)'),
         });
         displayPage.add(colorGroup);
 
@@ -299,16 +341,30 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         ));
 
         colorGroup.add(createColorRow(
-            _('Download-Graphfarbe'),
-            _('Farbe der Download-Verlaufskurve'),
-            'graph-color-download',
+            _('Top-Bar Mini-Graph Download'),
+            _('Farbe der Sparkline-Verlaufskurve in der Leiste'),
+            'bar-graph-color-download',
             '#3584e4'
         ));
 
         colorGroup.add(createColorRow(
-            _('Upload-Graphfarbe'),
-            _('Farbe der Upload-Verlaufskurve'),
-            'graph-color-upload',
+            _('Top-Bar Mini-Graph Upload'),
+            _('Farbe der Sparkline-Verlaufskurve in der Leiste'),
+            'bar-graph-color-upload',
+            '#33d17a'
+        ));
+
+        colorGroup.add(createColorRow(
+            _('Dropdown-Graph Download'),
+            _('Farbe der großen Verlaufskurven im Menü'),
+            'dropdown-graph-color-download',
+            '#3584e4'
+        ));
+
+        colorGroup.add(createColorRow(
+            _('Dropdown-Graph Upload'),
+            _('Farbe der großen Verlaufskurven im Menü'),
+            'dropdown-graph-color-upload',
             '#33d17a'
         ));
 
