@@ -1,22 +1,27 @@
 /* snmpbar Stylesheet */
 
-/* Top-Bar Labels: Gleiche Schriftgröße wie die Uhr, tabellarische Ziffern gegen Breitenwackeln */
-.snmpbar-down-label {
-    font-variant-numeric: tabular-nums;
-    font-feature-settings: "tnum";
-    min-width: 68px;
-    text-align: right;
-    margin-right: 3px;
-    margin-left: 2px;
-}
-
+/* Top-Bar Labels: Gleiche Schriftgröße wie die Uhr, tabellarische Ziffern & feste Mindestbreite gegen Breitenwackeln */
+.snmpbar-down-label,
 .snmpbar-up-label {
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum";
-    min-width: 68px;
-    text-align: right;
-    margin-right: 3px;
+    margin-right: 4px;
     margin-left: 2px;
+    text-align: left;
+}
+
+/* Modusspezifische feste Mindestbreiten:
+   Garantiert eine absolut ruhige Top-Bar ohne horizontales Springen bei Lastschwankungen */
+.snmpbar-unit-both {
+    min-width: 14.5em;
+}
+
+.snmpbar-unit-bits {
+    min-width: 8.5em;
+}
+
+.snmpbar-unit-bytes {
+    min-width: 7.5em;
 }
 
 .snmpbar-panel-box {

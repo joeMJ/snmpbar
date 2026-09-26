@@ -195,27 +195,59 @@ def snmp_walk(host, community, root_oid, version=1, max_reps=500, timeout=2.0):
     s.close()
     return results
 
-# --- Formatierungs-Funktionen (Stabile Breite mit 1 Dezimalstelle) ---
+# --- Formatierungs-Funktionen (Strikte Breitenstabilisierung mit Unicode Figure Space U+2007) ---
+
+FIG_SPACE = "\u2007"
 
 def format_rate(bits_per_sec):
-    if bits_per_sec >= 1_000_000_000:
-        return f"{bits_per_sec / 1_000_000_000:5.1f} Gbit/s"
-    elif bits_per_sec >= 1_000_000:
-        return f"{bits_per_sec / 1_000_000:5.1f} Mbit/s"
-    elif bits_per_sec >= 1_000:
-        return f"{bits_per_sec / 1_000:5.1f} kbit/s"
+    try:
+        bps = float(bits_per_sec)
+    except (ValueError, TypeError):
+        bps = 0.0
+    if bps < 0:
+        bps = 0.0
+
+    if bps >= 1_000_000_000_000:
+        val = f"{bps / 1_000_000_000_000:5.1f}".replace(" ", FIG_SPACE)
+        unit = "Tbit/s"
+    elif bps >= 1_000_000_000:
+        val = f"{bps / 1_000_000_000:5.1f}".replace(" ", FIG_SPACE)
+        unit = "Gbit/s"
+    elif bps >= 1_000_000:
+        val = f"{bps / 1_000_000:5.1f}".replace(" ", FIG_SPACE)
+        unit = "Mbit/s"
+    elif bps >= 1_000:
+        val = f"{bps / 1_000:5.1f}".replace(" ", FIG_SPACE)
+        unit = "kbit/s"
     else:
-        return f"{bits_per_sec:5.1f} bit/s"
+        val = f"{bps:5.1f}".replace(" ", FIG_SPACE)
+        unit = FIG_SPACE + "bit/s"
+    return f"{val} {unit}"
 
 def format_bytes_rate(bytes_per_sec):
-    if bytes_per_sec >= 1_073_741_824:
-        return f"{bytes_per_sec / 1_073_741_824:5.1f} GB/s"
-    elif bytes_per_sec >= 1_048_576:
-        return f"{bytes_per_sec / 1_048_576:5.1f} MB/s"
-    elif bytes_per_sec >= 1024:
-        return f"{bytes_per_sec / 1024:5.1f} KB/s"
+    try:
+        Bps = float(bytes_per_sec)
+    except (ValueError, TypeError):
+        Bps = 0.0
+    if Bps < 0:
+        Bps = 0.0
+
+    if Bps >= 1_099_511_627_776:
+        val = f"{Bps / 1_099_511_627_776:5.1f}".replace(" ", FIG_SPACE)
+        unit = "TB/s"
+    elif Bps >= 1_073_741_824:
+        val = f"{Bps / 1_073_741_824:5.1f}".replace(" ", FIG_SPACE)
+        unit = "GB/s"
+    elif Bps >= 1_048_576:
+        val = f"{Bps / 1_048_576:5.1f}".replace(" ", FIG_SPACE)
+        unit = "MB/s"
+    elif Bps >= 1024:
+        val = f"{Bps / 1024:5.1f}".replace(" ", FIG_SPACE)
+        unit = "KB/s"
     else:
-        return f"{bytes_per_sec:5.1f} B/s"
+        val = f"{Bps:5.1f}".replace(" ", FIG_SPACE)
+        unit = FIG_SPACE + "B/s"
+    return f"{val} {unit}"
 
 # --- Discovery (SNMP Walk) ---
 

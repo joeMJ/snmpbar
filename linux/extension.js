@@ -121,6 +121,10 @@ export default class SnmpBarExtension extends Extension {
                 this._repositionIndicator();
             } else if (key.startsWith('bar-color') || key.startsWith('graph-color')) {
                 this._updateColors();
+            } else if (key === 'unit-display') {
+                const unitMode = this._settings.get_string('unit-display') || 'both';
+                this._downLabel.set_style_class_name(`snmpbar-down-label snmpbar-unit-${unitMode}`);
+                this._upLabel.set_style_class_name(`snmpbar-up-label snmpbar-unit-${unitMode}`);
             }
             this._schedulePoll(1);
         });
@@ -168,15 +172,17 @@ export default class SnmpBarExtension extends Extension {
             y_align: Clutter.ActorAlign.CENTER,
         });
 
+        const unitMode = this._settings.get_string('unit-display') || 'both';
+
         this._downLabel = new St.Label({
             text: '↓ --.-',
-            style_class: 'snmpbar-down-label',
+            style_class: `snmpbar-down-label snmpbar-unit-${unitMode}`,
             y_align: Clutter.ActorAlign.CENTER,
         });
 
         this._upLabel = new St.Label({
             text: '↑ --.-',
-            style_class: 'snmpbar-up-label',
+            style_class: `snmpbar-up-label snmpbar-unit-${unitMode}`,
             y_align: Clutter.ActorAlign.CENTER,
         });
 
@@ -236,7 +242,18 @@ export default class SnmpBarExtension extends Extension {
     }
 
     _formatText(metric, unitMode) {
-        if (!metric) return { down: '↓ --', up: '↑ --', combined: '↓ --    ↑ --' };
+        if (!metric) {
+            if (unitMode === 'bits') {
+                return { down: '↓   --.-  bit/s', up: '↑   --.-  bit/s', combined: '↓   --.-  bit/s    ↑   --.-  bit/s' };
+            } else if (unitMode === 'bytes') {
+                return { down: '↓   --.-  B/s', up: '↑   --.-  B/s', combined: '↓   --.-  B/s    ↑   --.-  B/s' };
+            }
+            return {
+                down: '↓   --.-  bit/s (  --.-  B/s)',
+                up: '↑   --.-  bit/s (  --.-  B/s)',
+                combined: '↓   --.-  bit/s (  --.-  B/s)    ↑   --.-  bit/s (  --.-  B/s)'
+            };
+        }
 
         let down = '';
         let up = '';
@@ -485,9 +502,13 @@ export default class SnmpBarExtension extends Extension {
     }
 
     _updateUi(data) {
+        const unitMode = this._settings.get_string('unit-display') || 'both';
+        this._downLabel.set_style_class_name(`snmpbar-down-label snmpbar-unit-${unitMode}`);
+        this._upLabel.set_style_class_name(`snmpbar-up-label snmpbar-unit-${unitMode}`);
+
         if (!data || data.status !== 'ok') {
-            this._downLabel.set_text('↓ Offline');
-            this._upLabel.set_text('');
+            this._downLabel.set_text('↓  Offline');
+            this._upLabel.set_text('↑  Offline');
             this._buildMenu(null);
             return;
         }
