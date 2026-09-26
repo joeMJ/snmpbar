@@ -552,7 +552,6 @@ export default class SnmpBarExtension extends Extension {
             });
             ifacesContainer.add_child(ifacesTitle);
 
-            const ifaces = conn.interfaces || [];
             if (ifaces.length === 0) {
                 ifacesContainer.add_child(new St.Label({
                     text: '  Keine Schnittstellen konfiguriert',
