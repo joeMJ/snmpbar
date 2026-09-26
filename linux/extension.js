@@ -557,7 +557,6 @@ export default class SnmpBarExtension extends Extension {
 
         const showNumbers = this._settings.get_boolean('show-numbers');
         const showGraph = this._settings.get_boolean('show-graph');
-        const unitMode = this._settings.get_string('unit-display') || 'both';
 
         this._labelBox.visible = showNumbers;
         this._sparkline.visible = showGraph;
