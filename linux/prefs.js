@@ -173,11 +173,17 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         const sourceLabels = [];
 
         conns.forEach(c => {
-            sourceKeys.push(`${c.id}:total`);
-            if (conns.length > 1) {
-                sourceLabels.push(`${c.aggregated_name || 'Gesamtsumme'} — [${c.name}]`);
-            } else {
-                sourceLabels.push(`${c.aggregated_name || 'Gesamtsumme'}`);
+            const hasAgg = c.show_aggregated !== undefined
+                ? c.show_aggregated
+                : ((c.interfaces || []).length > 1);
+
+            if (hasAgg) {
+                sourceKeys.push(`${c.id}:total`);
+                if (conns.length > 1) {
+                    sourceLabels.push(`${c.aggregated_name || 'Gesamtsumme'} — [${c.name}]`);
+                } else {
+                    sourceLabels.push(`${c.aggregated_name || 'Gesamtsumme'}`);
+                }
             }
 
             (c.interfaces || []).forEach(iface => {
@@ -594,6 +600,25 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                     saveConnections(list);
                 });
                 connExpander.add_row(aggRow);
+
+                // 2b. Schalter für Aggregierte Gesamtleistung
+                const defaultAggActive = conn.show_aggregated !== undefined
+                    ? conn.show_aggregated
+                    : ((conn.interfaces || []).length > 1);
+
+                const showAggRow = new Adw.SwitchRow({
+                    title: _('Aggregierte Gesamtleistung anzeigen'),
+                    subtitle: _('Summenzeile & Summengraph aller Schnittstellen (empfohlen bei mehreren Schnittstellen)'),
+                    active: defaultAggActive,
+                });
+                aggRow.set_sensitive(showAggRow.active);
+
+                showAggRow.connect('notify::active', () => {
+                    conn.show_aggregated = showAggRow.active;
+                    aggRow.set_sensitive(showAggRow.active);
+                    saveConnections(list);
+                });
+                connExpander.add_row(showAggRow);
 
                 // 3. Host IP
                 const hostRow = new Adw.EntryRow({

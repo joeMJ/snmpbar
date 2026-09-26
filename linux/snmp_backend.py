@@ -307,17 +307,20 @@ def discover_interfaces(host, community, version_str="v2c"):
     names = snmp_walk(host, community, "1.3.6.1.2.1.31.1.1.1.1", version=version)
     aliases = snmp_walk(host, community, "1.3.6.1.2.1.31.1.1.1.18", version=version)
     oper_status = snmp_walk(host, community, "1.3.6.1.2.1.2.2.1.8", version=version)
+    admin_status = snmp_walk(host, community, "1.3.6.1.2.1.2.2.1.7", version=version)
     speeds = snmp_walk(host, community, "1.3.6.1.2.1.2.2.1.5", version=version)
     
     ifaces = {}
     for oid, descr in descrs.items():
         idx = int(oid.split('.')[-1])
+        op = oper_status.get(f"1.3.6.1.2.1.2.2.1.8.{idx}", 2)
+        adm = admin_status.get(f"1.3.6.1.2.1.2.2.1.7.{idx}", 1)
         ifaces[idx] = {
             "index": idx,
             "descr": str(descr),
             "name": str(names.get(f"1.3.6.1.2.1.31.1.1.1.1.{idx}", descr)),
             "alias": str(aliases.get(f"1.3.6.1.2.1.31.1.1.1.18.{idx}", "")),
-            "is_up": (oper_status.get(f"1.3.6.1.2.1.2.2.1.8.{idx}", 2) == 1),
+            "is_up": (op == 1) or (op == 7 and adm == 1),
             "speed_mbps": round((speeds.get(f"1.3.6.1.2.1.2.2.1.5.{idx}", 0) or 0) / 1_000_000, 1)
         }
         
@@ -392,6 +395,7 @@ def poll_connections(connections):
                 oids_to_query.append(f"1.3.6.1.2.1.2.2.1.10.{idx}")
                 oids_to_query.append(f"1.3.6.1.2.1.2.2.1.16.{idx}")
             oids_to_query.append(f"1.3.6.1.2.1.2.2.1.8.{idx}")
+            oids_to_query.append(f"1.3.6.1.2.1.2.2.1.7.{idx}")
             oids_to_query.append(f"1.3.6.1.2.1.2.2.1.9.{idx}")
             oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.18.{idx}")
             oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.1.{idx}")
@@ -445,11 +449,36 @@ def poll_connections(connections):
                 in_oid = f"1.3.6.1.2.1.2.2.1.10.{idx}"
                 out_oid = f"1.3.6.1.2.1.2.2.1.16.{idx}"
             status_oid = f"1.3.6.1.2.1.2.2.1.8.{idx}"
+            admin_oid = f"1.3.6.1.2.1.2.2.1.7.{idx}"
             
             in_raw = snmp_data.get(in_oid)
             out_raw = snmp_data.get(out_oid)
             oper_raw = snmp_data.get(status_oid, 2)
-            is_up = (oper_raw == 1)
+            admin_raw = snmp_data.get(admin_oid, 1)
+
+            rx_bps = 0.0
+            tx_bps = 0.0
+            rx_bytes_sec = 0.0
+            tx_bytes_sec = 0.0
+            
+            if in_raw is not None and out_raw is not None:
+                current_state_cache["counters"][cache_key] = {"in": in_raw, "out": out_raw}
+                if 0.5 <= dt <= 60.0 and cache_key in prev_state.get("counters", {}):
+                    prev_in = prev_state["counters"][cache_key]["in"]
+                    prev_out = prev_state["counters"][cache_key]["out"]
+                    mask = 0xFFFFFFFFFFFFFFFF if version == 1 else 0xFFFFFFFF
+                    d_in = (in_raw - prev_in) & mask
+                    d_out = (out_raw - prev_out) & mask
+                    rx_bytes_sec = d_in / dt
+                    tx_bytes_sec = d_out / dt
+                    rx_bps = rx_bytes_sec * 8.0
+                    tx_bps = tx_bytes_sec * 8.0
+
+            # Online-Erkennung:
+            # 1. Standard ifOperStatus == 1 (up)
+            # 2. ifOperStatus == 7 (lowerLayerDown bei WAN Bridge / Virtuellen Interfaces wie XDSL-1) wenn ifAdminStatus == 1
+            # 3. Wenn aktiver Durchsatz gemessen wird (rx_bps > 50 oder tx_bps > 50)
+            is_up = (oper_raw == 1) or (oper_raw == 7 and admin_raw == 1) or (rx_bps > 50 or tx_bps > 50)
 
             # Leitungs-Laufzeit ermitteln
             iface_uptime_str = ""
@@ -475,26 +504,8 @@ def poll_connections(connections):
                         iface_uptime_str = f"seit {format_uptime(diff)}"
                     elif uptime_str:
                         iface_uptime_str = f"seit {uptime_str}"
-            
-            rx_bps = 0.0
-            tx_bps = 0.0
-            rx_bytes_sec = 0.0
-            tx_bytes_sec = 0.0
-            
-            if in_raw is not None and out_raw is not None:
-                current_state_cache["counters"][cache_key] = {"in": in_raw, "out": out_raw}
-                if 0.5 <= dt <= 60.0 and cache_key in prev_state.get("counters", {}):
-                    prev_in = prev_state["counters"][cache_key]["in"]
-                    prev_out = prev_state["counters"][cache_key]["out"]
-                    mask = 0xFFFFFFFFFFFFFFFF if version == 1 else 0xFFFFFFFF
-                    d_in = (in_raw - prev_in) & mask
-                    d_out = (out_raw - prev_out) & mask
-                    rx_bytes_sec = d_in / dt
-                    tx_bytes_sec = d_out / dt
-                    rx_bps = rx_bytes_sec * 8.0
-                    tx_bps = tx_bytes_sec * 8.0
                     
-            if is_up:
+            if is_up or rx_bps > 0 or tx_bps > 0:
                 total_rx_bps += rx_bps
                 total_tx_bps += tx_bps
                 total_rx_bytes_sec += rx_bytes_sec
@@ -530,6 +541,7 @@ def poll_connections(connections):
             "name": conn_name,
             "host": host,
             "aggregated_name": agg_name,
+            "show_aggregated": conn.get("show_aggregated"),
             "is_online": is_online,
             "uptime_ticks": uptime_ticks,
             "uptime_str": uptime_str,

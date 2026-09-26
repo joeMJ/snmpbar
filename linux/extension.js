@@ -493,44 +493,51 @@ export default class SnmpBarExtension extends Extension {
 
             menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-            // 2. Aggregierte Gesamtleistung
-            const total = conn.total;
-            const totalKey = `${conn.id || 'conn_1'}:total`;
-            const totalHist = this._getOrCreateHistory(totalKey);
+            // 2. Aggregierte Gesamtleistung (nur wenn aktiv oder standardmäßig bei mehr als 1 Interface)
+            const ifaces = conn.interfaces || [];
+            const showAggregated = conn.show_aggregated !== undefined
+                ? conn.show_aggregated
+                : (ifaces.length > 1);
 
-            const lbItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
-            const lbContainer = new St.BoxLayout({
-                style_class: 'snmpbar-menu-box',
-                vertical: true,
-            });
+            if (showAggregated && ifaces.length > 0) {
+                const total = conn.total;
+                const totalKey = `${conn.id || 'conn_1'}:total`;
+                const totalHist = this._getOrCreateHistory(totalKey);
 
-            // Titel
-            const lbTitle = new St.Label({
-                text: conn.aggregated_name || 'Load-Balancer Gesamt',
-                style: styleSection,
-            });
-            lbContainer.add_child(lbTitle);
+                const lbItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
+                const lbContainer = new St.BoxLayout({
+                    style_class: 'snmpbar-menu-box',
+                    vertical: true,
+                });
 
-            // Großer Graph über den Werten
-            if (showDropdownGraphs) {
-                const totalGraph = new SparklineGraph(320, 36);
-                totalGraph.setColors(graphDownColor, graphUpColor, graphBgColor);
-                totalGraph.setHistory(totalHist.rx, totalHist.tx);
-                lbContainer.add_child(totalGraph);
+                // Titel
+                const lbTitle = new St.Label({
+                    text: conn.aggregated_name || 'Load-Balancer Gesamt',
+                    style: styleSection,
+                });
+                lbContainer.add_child(lbTitle);
+
+                // Großer Graph über den Werten
+                if (showDropdownGraphs) {
+                    const totalGraph = new SparklineGraph(320, 36);
+                    totalGraph.setColors(graphDownColor, graphUpColor, graphBgColor);
+                    totalGraph.setHistory(totalHist.rx, totalHist.tx);
+                    lbContainer.add_child(totalGraph);
+                }
+
+                // Ratenzeile gemäß unit-display & bar-unit-format
+                const totalFmt = this._formatText(total, unitMode, unitFmt);
+                const lbRatesLabel = new St.Label({
+                    text: totalFmt.combined,
+                    style: styleNormal,
+                });
+                lbContainer.add_child(lbRatesLabel);
+
+                lbItem.add_child(lbContainer);
+                menu.addMenuItem(lbItem);
+
+                menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
             }
-
-            // Ratenzeile gemäß unit-display & bar-unit-format
-            const totalFmt = this._formatText(total, unitMode, unitFmt);
-            const lbRatesLabel = new St.Label({
-                text: totalFmt.combined,
-                style: styleNormal,
-            });
-            lbContainer.add_child(lbRatesLabel);
-
-            lbItem.add_child(lbContainer);
-            menu.addMenuItem(lbItem);
-
-            menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
             // 3. Schnittstellen dieser Verbindung
             const ifacesItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
