@@ -8,20 +8,38 @@ import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 import GObject from 'gi://GObject';
 
-// History-Buffer für Sparklines (letzte 20 Messpunkte)
 const MAX_HISTORY = 20;
 
-// Mini Sparkline Graph mit Cairo
+// Cairo Sparkline Mini-Graph mit dynamischen Hex-Farben
 const SparklineGraph = GObject.registerClass(
 class SparklineGraph extends St.DrawingArea {
-    _init(width = 48, height = 18) {
+    _init(width = 46, height = 20) {
         super._init({
             width,
             height,
-            style: 'margin-left: 4px; margin-right: 4px;',
+            style: 'margin-left: 5px; margin-right: 2px;',
+            y_align: Clutter.ActorAlign.CENTER,
         });
         this._rxHistory = [];
         this._txHistory = [];
+        this._rxColor = [0.21, 0.52, 0.89, 0.95]; // Default Blue
+        this._txColor = [0.20, 0.82, 0.48, 0.95]; // Default Green
+    }
+
+    setColors(rxHex, txHex) {
+        this._rxColor = this._hexToRgba(rxHex, 0.95);
+        this._txColor = this._hexToRgba(txHex, 0.95);
+        this.queue_repaint();
+    }
+
+    _hexToRgba(hex, alpha = 1.0) {
+        if (!hex || !hex.startsWith('#') || hex.length < 7) {
+            return [0.5, 0.5, 0.5, alpha];
+        }
+        const r = parseInt(hex.slice(1, 3), 16) / 255.0;
+        const g = parseInt(hex.slice(3, 5), 16) / 255.0;
+        const b = parseInt(hex.slice(5, 7), 16) / 255.0;
+        return [r, g, b, alpha];
     }
 
     addSample(rx, tx) {
@@ -38,25 +56,24 @@ class SparklineGraph extends St.DrawingArea {
         const cr = this.get_context();
         const [w, h] = this.get_surface_size();
 
-        // Hintergrund abdunkeln
-        cr.setSourceRGBA(0, 0, 0, 0.2);
+        // Subtiler dunkler Hintergrundrahmen
+        cr.setSourceRGBA(0, 0, 0, 0.25);
         cr.rectangle(0, 0, w, h);
         cr.fill();
 
         if (this._rxHistory.length < 2) return;
 
-        // Maximalen Wert zur Skalierung ermitteln (min. 100 kbit/s als Basis)
         const maxVal = Math.max(
             ...this._rxHistory,
             ...this._txHistory,
-            100000
+            100000 // Mindestens 100 kbit/s als Referenz
         );
 
         const step = w / (MAX_HISTORY - 1);
 
-        // 1. Download-Kurve (Blau / Cyan)
-        cr.setLineWidth(1.5);
-        cr.setSourceRGBA(0.2, 0.7, 1.0, 0.9);
+        // 1. Download-Kurve
+        cr.setLineWidth(1.6);
+        cr.setSourceRGBA(...this._rxColor);
         const rxOffset = MAX_HISTORY - this._rxHistory.length;
         for (let i = 0; i < this._rxHistory.length; i++) {
             const x = (rxOffset + i) * step;
@@ -66,9 +83,9 @@ class SparklineGraph extends St.DrawingArea {
         }
         cr.stroke();
 
-        // 2. Upload-Kurve (Grün / Gelbgrün)
-        cr.setLineWidth(1.2);
-        cr.setSourceRGBA(0.3, 0.9, 0.4, 0.85);
+        // 2. Upload-Kurve
+        cr.setLineWidth(1.3);
+        cr.setSourceRGBA(...this._txColor);
         const txOffset = MAX_HISTORY - this._txHistory.length;
         for (let i = 0; i < this._txHistory.length; i++) {
             const x = (txOffset + i) * step;
@@ -87,18 +104,17 @@ export default class SnmpBarExtension extends Extension {
         this._settings = this.getSettings();
         this._timeoutId = null;
         this._isPolling = false;
-
         this._backendScript = GLib.build_filenamev([this.path, 'snmp_backend.py']);
 
-        // Panel-Indikator anlegen
         this._buildIndicator();
-
-        // Initiales Polling starten
         this._schedulePoll(1);
 
-        // Einstellungen überwachen
-        this._settingsChangedId = this._settings.connect('changed', () => {
-            this._updatePanelDisplay(null);
+        this._settingsChangedId = this._settings.connect('changed', (s, key) => {
+            if (key === 'panel-position') {
+                this._repositionIndicator();
+            } else if (key === 'color-download' || key === 'color-upload') {
+                this._updateColors();
+            }
             this._schedulePoll(1);
         });
 
@@ -128,103 +144,173 @@ export default class SnmpBarExtension extends Extension {
     _buildIndicator() {
         this._indicator = new PanelMenu.Button(0.0, this.metadata.name, false);
 
-        // Haupt-Container in der Top-Bar
         this._panelBox = new St.BoxLayout({
-            style_class: 'panel-status-indicators-box',
+            style_class: 'snmpbar-panel-box',
             y_align: Clutter.ActorAlign.CENTER,
             vertical: false,
         });
 
-        // Icon
-        this._icon = new St.Icon({
+        // Minimalistisches Standard-Ubuntu-Icon
+        this._mainIcon = new St.Icon({
             icon_name: 'network-transmit-receive-symbolic',
             style_class: 'system-status-icon',
         });
-        this._panelBox.add_child(this._icon);
+        this._panelBox.add_child(this._mainIcon);
 
-        // Numerische Labels in der Bar
+        // Zahlen-Labels (Schriftgröße erbt vom Panel, feste Mindestbreite gegen Wackeln)
         this._labelBox = new St.BoxLayout({
             vertical: false,
             y_align: Clutter.ActorAlign.CENTER,
         });
+
         this._downLabel = new St.Label({
-            text: '↓ --',
+            text: '↓ --.-',
             style_class: 'snmpbar-down-label',
             y_align: Clutter.ActorAlign.CENTER,
         });
+
         this._upLabel = new St.Label({
-            text: ' ↑ --',
+            text: '↑ --.-',
             style_class: 'snmpbar-up-label',
             y_align: Clutter.ActorAlign.CENTER,
         });
+
         this._labelBox.add_child(this._downLabel);
         this._labelBox.add_child(this._upLabel);
         this._panelBox.add_child(this._labelBox);
 
         // Miniatur-Graph
-        this._sparkline = new SparklineGraph(48, 18);
+        this._sparkline = new SparklineGraph(46, 20);
         this._panelBox.add_child(this._sparkline);
 
         this._indicator.add_child(this._panelBox);
-        Main.panel.addToStatusArea(this.uuid, this._indicator);
 
-        // Dropdown-Menü aufbauen
-        this._buildMenu();
+        this._updateColors();
+        this._addToPanel();
     }
 
-    _buildMenu() {
+    _addToPanel() {
+        const pos = this._settings.get_string('panel-position') || 'right';
+        Main.panel.addToStatusArea(this.uuid, this._indicator, 1, pos);
+    }
+
+    _repositionIndicator() {
+        if (this._indicator) {
+            this._indicator.destroy();
+            this._indicator = null;
+        }
+        this._buildIndicator();
+    }
+
+    _updateColors() {
+        const downColor = this._settings.get_string('color-download') || '#3584e4';
+        const upColor = this._settings.get_string('color-upload') || '#33d17a';
+
+        this._downLabel.set_style(`color: ${downColor};`);
+        this._upLabel.set_style(`color: ${upColor};`);
+        this._sparkline.setColors(downColor, upColor);
+    }
+
+    _buildMenu(data) {
         const menu = this._indicator.menu;
         menu.removeAll();
 
-        // Header: Host Information
-        this._menuHeader = new PopupMenu.PopupMenuItem('Lancom: Verbindung wird hergestellt...', { reactive: false });
-        this._menuHeader.label.clutter_text.set_markup('<b>Lancom 1803VA-5G</b> (192.0.2.1)');
-        menu.addMenuItem(this._menuHeader);
+        const textColor = this._settings.get_string('menu-text-color') || '#1a1a1a';
+        const styleText = `color: ${textColor}; font-weight: normal;`;
+        const styleBold = `color: ${textColor}; font-weight: bold;`;
+        const styleTitle = `color: ${textColor}; font-weight: 800; font-size: 13px;`;
 
-        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        // Sektion: Load Balancer Gesamt
-        const lbSection = new PopupMenu.PopupMenuItem('Load-Balancer (Gesamt)', { reactive: false });
-        lbSection.label.clutter_text.set_markup('<b>Load-Balancer (WIZ_LOADBAL Gesamt)</b>');
-        menu.addMenuItem(lbSection);
-
-        this._menuLbDown = new PopupMenu.PopupMenuItem('  ↓ Downstream: --', { reactive: false });
-        this._menuLbUp = new PopupMenu.PopupMenuItem('  ↑ Upstream:   --', { reactive: false });
-        menu.addMenuItem(this._menuLbDown);
-        menu.addMenuItem(this._menuLbUp);
-
-        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        // Sektion: Schnittstellen
-        const ifacesSection = new PopupMenu.PopupMenuItem('Schnittstellen', { reactive: false });
-        ifacesSection.label.clutter_text.set_markup('<b>WAN-Schnittstellen</b>');
-        menu.addMenuItem(ifacesSection);
-
-        // VDSL
-        this._menuVdsl = new PopupMenu.PopupMenuItem('  🌐 VDSL (INTERNET): --', { reactive: false });
-        menu.addMenuItem(this._menuVdsl);
-
-        // 5G WWAN
-        this._menuWwan = new PopupMenu.PopupMenuItem('  📶 5G (INET_WWAN): --', { reactive: false });
-        menu.addMenuItem(this._menuWwan);
-
-        // GPON
-        this._menuGpon = new PopupMenu.PopupMenuItem('  ⚡ Glasfaser (GPON): Inaktiv (DOWN)', { reactive: false });
-        menu.addMenuItem(this._menuGpon);
-
-        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        // Aktionen
-        const refreshItem = new PopupMenu.PopupMenuItem('Jetzt aktualisieren');
-        refreshItem.connect('activate', () => {
-            this._pollNow();
+        // 1. Header (Router / Host)
+        const hostName = data ? data.host : (this._settings.get_string('host') || '192.0.2.1');
+        const headerItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
+        const headerBox = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER });
+        const hostIcon = new St.Icon({
+            icon_name: 'network-server-symbolic',
+            icon_size: 16,
+            style: `margin-right: 8px; color: ${textColor};`,
         });
+        const headerLabel = new St.Label({
+            text: `Gateway: ${hostName}`,
+            style: styleTitle,
+        });
+        headerBox.add_child(hostIcon);
+        headerBox.add_child(headerLabel);
+        headerItem.add_child(headerBox);
+        menu.addMenuItem(headerItem);
+
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        // 2. Load-Balancer Gesamt
+        const lbTotal = data ? data.load_balancer.total : null;
+        const lbSectionItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
+        const lbTitle = new St.Label({
+            text: 'Load-Balancer (Gesamtdurchsatz)',
+            style: styleBold,
+        });
+        lbSectionItem.add_child(lbTitle);
+        menu.addMenuItem(lbSectionItem);
+
+        const lbDownText = lbTotal ? `↓ Downstream: ${lbTotal.rx_formatted} (${lbTotal.rx_bytes_formatted})` : '↓ Downstream: --';
+        const lbUpText = lbTotal ? `↑ Upstream:   ${lbTotal.tx_formatted} (${lbTotal.tx_bytes_formatted})` : '↑ Upstream:   --';
+
+        const lbRatesItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
+        const lbRatesBox = new St.BoxLayout({ vertical: true });
+        lbRatesBox.add_child(new St.Label({ text: `  ${lbDownText}`, style: styleText }));
+        lbRatesBox.add_child(new St.Label({ text: `  ${lbUpText}`, style: styleText }));
+        lbRatesItem.add_child(lbRatesBox);
+        menu.addMenuItem(lbRatesItem);
+
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        // 3. Dynamische Schnittstellen-Liste
+        const ifacesSectionItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
+        const ifacesTitle = new St.Label({
+            text: 'Schnittstellen',
+            style: styleBold,
+        });
+        ifacesSectionItem.add_child(ifacesTitle);
+        menu.addMenuItem(ifacesSectionItem);
+
+        const interfaces = data ? data.load_balancer.interfaces : [];
+        if (interfaces.length === 0) {
+            const noIfaceItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
+            noIfaceItem.add_child(new St.Label({ text: '  Keine Schnittstellen konfiguriert', style: styleText }));
+            menu.addMenuItem(noIfaceItem);
+        } else {
+            for (const iface of interfaces) {
+                const ifaceItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
+                const ifaceBox = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER });
+
+                // Minimalistisches Symbolic Icon
+                const icon = new St.Icon({
+                    icon_name: iface.icon || 'network-wired-symbolic',
+                    icon_size: 15,
+                    style: `margin-right: 8px; color: ${textColor};`,
+                });
+                ifaceBox.add_child(icon);
+
+                const statusTag = iface.is_up ? '[UP]' : '[DOWN]';
+                const labelText = `${iface.name}: ${statusTag}  ↓ ${iface.rx_formatted} | ↑ ${iface.tx_formatted}`;
+                const ifaceLabel = new St.Label({
+                    text: labelText,
+                    style: styleText,
+                });
+                ifaceBox.add_child(ifaceLabel);
+
+                ifaceItem.add_child(ifaceBox);
+                menu.addMenuItem(ifaceItem);
+            }
+        }
+
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        // 4. Aktionen
+        const refreshItem = new PopupMenu.PopupMenuItem('Jetzt aktualisieren');
+        refreshItem.connect('activate', () => this._pollNow());
         menu.addMenuItem(refreshItem);
 
         const prefsItem = new PopupMenu.PopupMenuItem('Einstellungen...');
-        prefsItem.connect('activate', () => {
-            this.openPreferences();
-        });
+        prefsItem.connect('activate', () => this.openPreferences());
         menu.addMenuItem(prefsItem);
     }
 
@@ -249,17 +335,18 @@ export default class SnmpBarExtension extends Extension {
         const host = this._settings.get_string('host') || '192.0.2.1';
         const comm = this._settings.get_string('community') || 'public';
         const ver = this._settings.get_string('snmp-version') || 'v2c';
+        const ifacesJson = this._settings.get_string('interfaces-json') || '[]';
 
         try {
             const proc = Gio.Subprocess.new(
-                ['/usr/bin/python3', this._backendScript, host, comm, ver],
+                ['/usr/bin/python3', this._backendScript, host, comm, ver, ifacesJson],
                 Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
             );
 
             proc.communicate_utf8_async(null, null, (source, res) => {
                 this._isPolling = false;
                 try {
-                    const [, stdout, stderr] = source.communicate_utf8_finish(res);
+                    const [, stdout] = source.communicate_utf8_finish(res);
                     if (stdout) {
                         const data = JSON.parse(stdout);
                         this._updateUi(data);
@@ -278,49 +365,31 @@ export default class SnmpBarExtension extends Extension {
         if (!data || data.status !== 'ok') {
             this._downLabel.set_text('↓ Offline');
             this._upLabel.set_text('');
+            this._buildMenu(null);
             return;
         }
 
-        const lb = data.load_balancer;
-        const total = lb.total;
+        const total = data.load_balancer.total;
 
-        // Sparkline mit neuem Datenpunkt füttern
-        this._sparkline.addSample(total.rx_bps, total.tx_bps);
+        // Sichtbarkeiten prüfen
+        const showNumbers = this._settings.get_boolean('show-numbers');
+        const showGraph = this._settings.get_boolean('show-graph');
 
-        // Top-Bar aktualisieren
-        const mode = this._settings.get_string('display-mode');
-        this._labelBox.visible = (mode === 'both' || mode === 'numeric');
-        this._sparkline.visible = (mode === 'both' || mode === 'graph');
+        this._labelBox.visible = showNumbers;
+        this._sparkline.visible = showGraph;
 
-        this._downLabel.set_text(`↓ ${total.rx_formatted}`);
-        this._upLabel.set_text(` ↑ ${total.tx_formatted}`);
-
-        // Dropdown-Menü aktualisieren
-        this._menuHeader.label.clutter_text.set_markup(
-            `<b>LANCOM 1803VA-5G</b> (${data.host})`
-        );
-
-        this._menuLbDown.label.set_text(`  ↓ Downstream: ${total.rx_formatted} (${total.rx_bytes_formatted})`);
-        this._menuLbUp.label.set_text(`  ↑ Upstream:   ${total.tx_formatted} (${total.tx_bytes_formatted})`);
-
-        // Interfaces aktualisieren
-        for (const iface of lb.interfaces) {
-            if (iface.id === 'vdsl') {
-                const s = iface.is_up ? 'UP' : 'DOWN';
-                this._menuVdsl.label.set_text(
-                    `  🌐 VDSL: [${s}] ↓ ${iface.rx_formatted} | ↑ ${iface.tx_formatted}`
-                );
-            } else if (iface.id === 'wwan') {
-                const s = iface.is_up ? 'UP' : 'DOWN';
-                this._menuWwan.label.set_text(
-                    `  📶 5G WWAN: [${s}] ↓ ${iface.rx_formatted} | ↑ ${iface.tx_formatted}`
-                );
-            } else if (iface.id === 'gpon') {
-                const s = iface.is_up ? 'UP' : 'DOWN (Wartend)';
-                this._menuGpon.label.set_text(
-                    `  ⚡ Glasfaser (GPON): [${s}] ↓ ${iface.rx_formatted} | ↑ ${iface.tx_formatted}`
-                );
-            }
+        // Sparkline mit Daten füttern
+        if (showGraph) {
+            this._sparkline.addSample(total.rx_bps, total.tx_bps);
         }
+
+        // Top-Bar Zahlen mit fester Dezimalstelle
+        if (showNumbers) {
+            this._downLabel.set_text(`↓ ${total.rx_formatted}`);
+            this._upLabel.set_text(`↑ ${total.tx_formatted}`);
+        }
+
+        // Menü neu aufbauen mit satten Kontrast-Farben
+        this._buildMenu(data);
     }
 }

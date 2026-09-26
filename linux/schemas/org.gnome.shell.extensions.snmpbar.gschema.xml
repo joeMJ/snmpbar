@@ -5,7 +5,7 @@
     <key name="host" type="s">
       <default>'192.0.2.1'</default>
       <summary>Router / Gateway IP</summary>
-      <description>IP-Adresse des SNMP-Zielgeräts (z.B. Lancom 1803VA-5G).</description>
+      <description>IP-Adresse des SNMP-Zielgeräts.</description>
     </key>
 
     <key name="community" type="s">
@@ -23,43 +23,49 @@
     <key name="refresh-interval" type="i">
       <default>3</default>
       <summary>Abfrage-Intervall in Sekunden</summary>
-      <description>Intervall für zyklische SNMP-Abfragen (Standard: 3 Sekunden).</description>
+      <description>Häufigkeit der Abfragen.</description>
     </key>
 
-    <key name="display-mode" type="s">
-      <default>'both'</default>
-      <summary>Darstellungsmodus in der Bar</summary>
-      <description>Mögliche Werte: 'both' (Zahl &amp; Graph), 'numeric' (nur Zahl), 'graph' (nur Graph).</description>
+    <key name="panel-position" type="s">
+      <default>'right'</default>
+      <summary>Position im GNOME Panel</summary>
+      <description>'right' (Systemstatus), 'center' (neben der Uhr), 'left' (bei Aktivitäten).</description>
     </key>
 
-    <key name="show-in-bar-lb-total" type="b">
+    <key name="show-graph" type="b">
       <default>true</default>
-      <summary>Load Balancer Gesamt in Top-Bar anzeigen</summary>
-      <description>Ob der aggregierte Load Balancer-Durchsatz direkt in der GNOME Top-Bar angezeigt werden soll.</description>
+      <summary>Mini-Graph in der Bar anzeigen</summary>
+      <description>Ob der Sparkline-Verlaufsgraph im Panel gezeichnet werden soll.</description>
     </key>
 
-    <key name="show-in-bar-vdsl" type="b">
-      <default>false</default>
-      <summary>VDSL in Top-Bar anzeigen</summary>
-      <description>Ob VDSL direkt in der Top-Bar separat angezeigt werden soll.</description>
+    <key name="show-numbers" type="b">
+      <default>true</default>
+      <summary>Zahlenwerte in der Bar anzeigen</summary>
+      <description>Ob Download/Upload-Werte als Text im Panel stehen sollen.</description>
     </key>
 
-    <key name="show-in-bar-wwan" type="b">
-      <default>false</default>
-      <summary>5G Mobilfunk in Top-Bar anzeigen</summary>
-      <description>Ob 5G WWAN direkt in der Top-Bar separat angezeigt werden soll.</description>
+    <key name="color-download" type="s">
+      <default>'#3584e4'</default>
+      <summary>Farbe für Download / Downstream</summary>
+      <description>Hex-Farbwert für Download-Label und Graph.</description>
     </key>
 
-    <key name="show-in-bar-gpon" type="b">
-      <default>false</default>
-      <summary>Glasfaser in Top-Bar anzeigen</summary>
-      <description>Ob Glasfaser (GPON) separat in der Top-Bar angezeigt werden soll.</description>
+    <key name="color-upload" type="s">
+      <default>'#33d17a'</default>
+      <summary>Farbe für Upload / Upstream</summary>
+      <description>Hex-Farbwert für Upload-Label und Graph.</description>
     </key>
 
-    <key name="unit-format" type="s">
-      <default>'bits'</default>
-      <summary>Einheiten-Format</summary>
-      <description>'bits' für Mbit/s / kbit/s, 'bytes' für MB/s / KB/s.</description>
+    <key name="menu-text-color" type="s">
+      <default>'#1a1a1a'</default>
+      <summary>Schriftfarbe im Dropdown-Menü</summary>
+      <description>Hex-Farbcode für kontrastreiche Darstellung (Standard: Dunkel/Schwarz).</description>
+    </key>
+
+    <key name="interfaces-json" type="s">
+      <default>'[{"id":"vdsl","name":"VDSL (INTERNET)","index":65,"icon":"network-wired-symbolic","show_in_bar":false},{"id":"wwan","name":"5G (INET_WWAN)","index":93,"icon":"network-cellular-signal-excellent-symbolic","show_in_bar":false},{"id":"gpon","name":"Glasfaser (GPON)","index":400010,"icon":"network-transmit-receive-symbolic","show_in_bar":false}]'</default>
+      <summary>Konfigurierte Interfaces</summary>
+      <description>JSON-Array der überwachten Interfaces.</description>
     </key>
 
   </schema>

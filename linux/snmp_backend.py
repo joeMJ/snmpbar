@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-snmp_backend.py - Robuster, asynchroner SNMP-Metrik-Poller für snmpbar.
-Fragt Lancom Gateway / Load Balancer Interfaces ab, berechnet Raten (Bits/s)
-und gibt formatierte Daten als JSON aus.
+snmp_backend.py - Robuster, asynchroner SNMP-Metrik-Poller & Discovery-Engine für snmpbar.
+Unterstützt:
+- Polling beliebiger konfigurierter Interfaces
+- Discovery aller Interfaces eines Routers via --walk (Lancom, FritzBox, Cisco, MikroTik etc.)
+- Exakte Ratenberechnung mit 64-Bit Counter64 und mathematischer Aggregation
 """
 
 import sys
@@ -76,7 +78,6 @@ def decode_oid(data):
     return ".".join(parts)
 
 def build_snmp_packet(version, community, pdu_type, req_id, oids):
-    # Varbind list
     vb_bytes = b""
     for oid_str in oids:
         oid_raw = encode_oid(oid_str)
@@ -141,9 +142,11 @@ def parse_snmp_response(data):
                 val = int.from_bytes(val_raw, 'big', signed=False)
             elif val_tag == 0x04:
                 try:
-                    val = val_raw.decode('utf-8', errors='replace')
+                    val = val_raw.decode('utf-8', errors='replace').strip()
                 except:
                     val = val_raw.hex()
+            elif val_tag == 0x06:
+                val = decode_oid(val_raw)
             else:
                 val = val_raw
             res[oid] = val
@@ -155,7 +158,7 @@ def snmp_get_multiple(host, community, oids, version=1, timeout=1.5):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(timeout)
     req_id = int(time.time() * 1000) & 0x7FFFFFFF
-    pkt = build_snmp_packet(version, community, 0xa0, req_id, oids) # 0xa0 = GetRequest
+    pkt = build_snmp_packet(version, community, 0xa0, req_id, oids)
     try:
         s.sendto(pkt, (host, 161))
         resp, _ = s.recvfrom(65535)
@@ -165,58 +168,141 @@ def snmp_get_multiple(host, community, oids, version=1, timeout=1.5):
     finally:
         s.close()
 
-# --- Rate Formatting & Unit Conversion ---
+def snmp_walk(host, community, root_oid, version=1, max_reps=500, timeout=1.5):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.settimeout(timeout)
+    current_oid = root_oid
+    req_id = 1000
+    results = {}
+    
+    for _ in range(max_reps):
+        req_id += 1
+        pkt = build_snmp_packet(version, community, 0xa1, req_id, [current_oid])
+        try:
+            s.sendto(pkt, (host, 161))
+            resp, _ = s.recvfrom(65535)
+            parsed = parse_snmp_response(resp)
+            if not parsed:
+                break
+            next_oid, val = next(iter(parsed.items()))
+            if not next_oid.startswith(root_oid.strip('.')):
+                break
+            results[next_oid] = val
+            current_oid = next_oid
+        except Exception:
+            break
+            
+    s.close()
+    return results
+
+# --- Formatierungs-Funktionen (Stabile Breite mit 1 Dezimalstelle) ---
 
 def format_rate(bits_per_sec):
-    bytes_per_sec = bits_per_sec / 8.0
+    """Gibt Raten mit fester Dezimalstelle aus, damit die Breite nicht springt."""
     if bits_per_sec >= 1_000_000_000:
-        return f"{bits_per_sec / 1_000_000_000:.2f} Gbit/s"
+        return f"{bits_per_sec / 1_000_000_000:5.1f} Gbit/s"
     elif bits_per_sec >= 1_000_000:
-        return f"{bits_per_sec / 1_000_000:.2f} Mbit/s"
+        return f"{bits_per_sec / 1_000_000:5.1f} Mbit/s"
     elif bits_per_sec >= 1_000:
-        return f"{bits_per_sec / 1_000:.1f} kbit/s"
+        return f"{bits_per_sec / 1_000:5.1f} kbit/s"
     else:
-        return f"{bits_per_sec:.0f} bit/s"
+        return f"{bits_per_sec:5.1f} bit/s"
 
 def format_bytes_rate(bytes_per_sec):
     if bytes_per_sec >= 1_073_741_824:
-        return f"{bytes_per_sec / 1_073_741_824:.2f} GB/s"
+        return f"{bytes_per_sec / 1_073_741_824:5.1f} GB/s"
     elif bytes_per_sec >= 1_048_576:
-        return f"{bytes_per_sec / 1_048_576:.2f} MB/s"
+        return f"{bytes_per_sec / 1_048_576:5.1f} MB/s"
     elif bytes_per_sec >= 1024:
-        return f"{bytes_per_sec / 1024:.1f} KB/s"
+        return f"{bytes_per_sec / 1024:5.1f} KB/s"
     else:
-        return f"{bytes_per_sec:.0f} B/s"
+        return f"{bytes_per_sec:5.1f} B/s"
 
-# --- Main Polling & Aggregation Logic ---
+# --- Discovery-Funktion (SNMP Walk für Interfaces) ---
 
-def poll_metrics(host="192.0.2.1", community="public", version_str="v2c"):
+def discover_interfaces(host, community, version_str="v2c"):
+    version = 1 if version_str == "v2c" else 0
+    descrs = snmp_walk(host, community, "1.3.6.1.2.1.2.2.1.2", version=version)
+    names = snmp_walk(host, community, "1.3.6.1.2.1.31.1.1.1.1", version=version)
+    aliases = snmp_walk(host, community, "1.3.6.1.2.1.31.1.1.1.18", version=version)
+    oper_status = snmp_walk(host, community, "1.3.6.1.2.1.2.2.1.8", version=version)
+    speeds = snmp_walk(host, community, "1.3.6.1.2.1.2.2.1.5", version=version)
+    
+    ifaces = {}
+    for oid, descr in descrs.items():
+        idx = int(oid.split('.')[-1])
+        ifaces[idx] = {
+            "index": idx,
+            "descr": str(descr),
+            "name": str(names.get(f"1.3.6.1.2.1.31.1.1.1.1.{idx}", descr)),
+            "alias": str(aliases.get(f"1.3.6.1.2.1.31.1.1.1.18.{idx}", "")),
+            "is_up": (oper_status.get(f"1.3.6.1.2.1.2.2.1.8.{idx}", 2) == 1),
+            "speed_mbps": round((speeds.get(f"1.3.6.1.2.1.2.2.1.5.{idx}", 0) or 0) / 1_000_000, 1)
+        }
+        
+    # Relevante Interfaces filtern (UP oder bekannte Bezeichnungen)
+    result = []
+    for idx, iface in sorted(ifaces.items()):
+        name_lower = iface["name"].lower()
+        descr_lower = iface["descr"].lower()
+        alias_lower = iface["alias"].lower()
+        
+        # Geeignetes Ubuntu-Symbolic-Icon vorschlagen
+        icon = "network-wired-symbolic"
+        if any(k in name_lower or k in descr_lower for k in ["wwan", "5g", "lte", "mobil"]):
+            icon = "network-cellular-signal-excellent-symbolic"
+        elif any(k in name_lower or k in descr_lower for k in ["dsl", "ppp", "wan"]):
+            icon = "network-wired-symbolic"
+        elif any(k in name_lower or k in descr_lower for k in ["pon", "fiber", "glas"]):
+            icon = "network-transmit-receive-symbolic"
+        elif "wlan" in name_lower or "wifi" in name_lower:
+            icon = "network-wireless-symbolic"
+            
+        display_label = iface["alias"] if iface["alias"] else iface["name"]
+        if iface["descr"] and iface["descr"] != iface["name"]:
+            display_label = f"{display_label} ({iface['descr']})"
+            
+        result.append({
+            "index": idx,
+            "name": iface["name"],
+            "descr": iface["descr"],
+            "alias": iface["alias"],
+            "display_name": display_label,
+            "is_up": iface["is_up"],
+            "speed_mbps": iface["speed_mbps"],
+            "suggested_icon": icon
+        })
+        
+    return {"status": "ok", "host": host, "discovered_interfaces": result}
+
+# --- Polling-Funktion ---
+
+def poll_metrics(host="192.0.2.1", community="public", version_str="v2c", ifaces_config=None):
     version = 1 if version_str == "v2c" else 0
     now = time.time()
     
-    # Bekannte Schnittstellen für Lancom 1803VA-5G
-    tracked_interfaces = [
-        {"id": "vdsl", "name": "VDSL (INTERNET)", "index": 65, "type": "dsl"},
-        {"id": "wwan", "name": "5G (INET_WWAN)", "index": 93, "type": "5g"},
-        {"id": "gpon", "name": "Glasfaser (GPON)", "index": 400010, "type": "fiber"},
-    ]
-    
-    # OIDs zusammenstellen: 64-Bit HC Zähler für v2c, 32-Bit für v1
+    # Standard-Interfaces falls keine übergeben
+    if not ifaces_config:
+        ifaces_config = [
+            {"id": "vdsl", "name": "VDSL (INTERNET)", "index": 65, "icon": "network-wired-symbolic", "show_in_bar": False},
+            {"id": "wwan", "name": "5G (INET_WWAN)", "index": 93, "icon": "network-cellular-signal-excellent-symbolic", "show_in_bar": False},
+            {"id": "gpon", "name": "Glasfaser (GPON)", "index": 400010, "icon": "network-transmit-receive-symbolic", "show_in_bar": False},
+        ]
+        
     oids_to_query = []
-    for iface in tracked_interfaces:
+    for iface in ifaces_config:
         idx = iface["index"]
-        if version == 1: # v2c
-            oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.6.{idx}")   # ifHCInOctets
-            oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.10.{idx}")  # ifHCOutOctets
-        else: # v1
-            oids_to_query.append(f"1.3.6.1.2.1.2.2.1.10.{idx}")     # ifInOctets
-            oids_to_query.append(f"1.3.6.1.2.1.2.2.1.16.{idx}")     # ifOutOctets
-        oids_to_query.append(f"1.3.6.1.2.1.2.2.1.8.{idx}")          # ifOperStatus
+        if version == 1: # v2c 64-bit HC
+            oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.6.{idx}")
+            oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.10.{idx}")
+        else: # v1 32-bit
+            oids_to_query.append(f"1.3.6.1.2.1.2.2.1.10.{idx}")
+            oids_to_query.append(f"1.3.6.1.2.1.2.2.1.16.{idx}")
+        oids_to_query.append(f"1.3.6.1.2.1.2.2.1.8.{idx}")
         
     snmp_data = snmp_get_multiple(host, community, oids_to_query, version=version)
     is_online = bool(snmp_data)
     
-    # Lade vorherigen Stand für Delta-Berechnung
     prev_state = {}
     if os.path.exists(CACHE_FILE):
         try:
@@ -227,7 +313,6 @@ def poll_metrics(host="192.0.2.1", community="public", version_str="v2c"):
             
     prev_time = prev_state.get("timestamp", 0)
     dt = now - prev_time if prev_time > 0 else 0
-    
     current_state_cache = {"timestamp": now, "counters": {}}
     
     iface_results = []
@@ -236,7 +321,7 @@ def poll_metrics(host="192.0.2.1", community="public", version_str="v2c"):
     total_rx_bytes_sec = 0.0
     total_tx_bytes_sec = 0.0
     
-    for iface in tracked_interfaces:
+    for iface in ifaces_config:
         idx = iface["index"]
         if version == 1:
             in_oid = f"1.3.6.1.2.1.31.1.1.1.6.{idx}"
@@ -251,35 +336,24 @@ def poll_metrics(host="192.0.2.1", community="public", version_str="v2c"):
         oper_raw = snmp_data.get(status_oid, 2)
         
         is_up = (oper_raw == 1)
-        
         rx_bps = 0.0
         tx_bps = 0.0
         rx_bytes_sec = 0.0
         tx_bytes_sec = 0.0
         
         if in_raw is not None and out_raw is not None:
-            current_state_cache["counters"][str(idx)] = {
-                "in": in_raw,
-                "out": out_raw
-            }
-            
-            # Wenn gültiges Delta vorliegt (zwischen 0.5s und 60s)
+            current_state_cache["counters"][str(idx)] = {"in": in_raw, "out": out_raw}
             if 0.5 <= dt <= 60.0 and str(idx) in prev_state.get("counters", {}):
                 prev_in = prev_state["counters"][str(idx)]["in"]
                 prev_out = prev_state["counters"][str(idx)]["out"]
-                
-                # Zählerüberlauf berücksichtigen (64-bit oder 32-bit)
                 mask = 0xFFFFFFFFFFFFFFFF if version == 1 else 0xFFFFFFFF
                 d_in = (in_raw - prev_in) & mask
                 d_out = (out_raw - prev_out) & mask
-                
-                # Router-Perspektive WAN: ifInOctets = Download, ifOutOctets = Upload
                 rx_bytes_sec = d_in / dt
                 tx_bytes_sec = d_out / dt
                 rx_bps = rx_bytes_sec * 8.0
                 tx_bps = tx_bytes_sec * 8.0
                 
-        # Wenn Interface UP ist, zur Gesamtsumme addieren
         if is_up:
             total_rx_bps += rx_bps
             total_tx_bps += tx_bps
@@ -287,10 +361,11 @@ def poll_metrics(host="192.0.2.1", community="public", version_str="v2c"):
             total_tx_bytes_sec += tx_bytes_sec
             
         iface_results.append({
-            "id": iface["id"],
-            "name": iface["name"],
+            "id": iface.get("id", str(idx)),
+            "name": iface.get("name", f"Interface {idx}"),
             "index": idx,
-            "type": iface["type"],
+            "icon": iface.get("icon", "network-wired-symbolic"),
+            "show_in_bar": iface.get("show_in_bar", False),
             "is_up": is_up,
             "status_str": "UP" if is_up else "DOWN",
             "rx_bps": round(rx_bps),
@@ -301,15 +376,13 @@ def poll_metrics(host="192.0.2.1", community="public", version_str="v2c"):
             "tx_bytes_formatted": format_bytes_rate(tx_bytes_sec)
         })
         
-    # Speichere neuen Cache
     try:
         with open(CACHE_FILE, "w") as f:
             json.dump(current_state_cache, f)
     except Exception:
         pass
         
-    # Ergebnis-Struktur
-    output = {
+    return {
         "status": "ok" if is_online else "offline",
         "timestamp": now,
         "host": host,
@@ -326,12 +399,20 @@ def poll_metrics(host="192.0.2.1", community="public", version_str="v2c"):
             "interfaces": iface_results
         }
     }
-    return output
 
 if __name__ == "__main__":
-    host = sys.argv[1] if len(sys.argv) > 1 else "192.0.2.1"
-    comm = sys.argv[2] if len(sys.argv) > 2 else "public"
-    ver = sys.argv[3] if len(sys.argv) > 3 else "v2c"
-    
-    result = poll_metrics(host, comm, ver)
-    print(json.dumps(result, indent=2))
+    if len(sys.argv) > 1 and sys.argv[1] == "--walk":
+        host = sys.argv[2] if len(sys.argv) > 2 else "192.0.2.1"
+        comm = sys.argv[3] if len(sys.argv) > 3 else "public"
+        ver = sys.argv[4] if len(sys.argv) > 4 else "v2c"
+        result = discover_interfaces(host, comm, ver)
+        print(json.dumps(result, indent=2))
+    else:
+        host = sys.argv[1] if len(sys.argv) > 1 else "192.0.2.1"
+        comm = sys.argv[2] if len(sys.argv) > 2 else "public"
+        ver = sys.argv[3] if len(sys.argv) > 3 else "v2c"
+        ifaces_json_str = sys.argv[4] if len(sys.argv) > 4 else None
+        ifaces_cfg = json.loads(ifaces_json_str) if ifaces_json_str else None
+        
+        result = poll_metrics(host, comm, ver, ifaces_cfg)
+        print(json.dumps(result, indent=2))

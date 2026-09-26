@@ -1,13 +1,52 @@
+/* snmpbar Stylesheet */
+
+/* Top-Bar Labels: Gleiche Schriftgröße wie die Uhr, tabellarische Ziffern gegen Breitenwackeln */
 .snmpbar-down-label {
-    font-size: 11px;
-    font-weight: bold;
-    color: #3584e4;
-    margin-right: 2px;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+    min-width: 68px;
+    text-align: right;
+    margin-right: 3px;
+    margin-left: 2px;
 }
 
 .snmpbar-up-label {
-    font-size: 11px;
-    font-weight: bold;
-    color: #33d17a;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+    min-width: 68px;
+    text-align: right;
+    margin-right: 3px;
     margin-left: 2px;
+}
+
+.snmpbar-panel-box {
+    margin-left: 4px;
+    margin-right: 4px;
+}
+
+/* Dropdown Menu: Ausgeprägte Lesbarkeit, sattes Schwarz/Dunkelgrau für helle Themes */
+.snmpbar-menu-header {
+    font-weight: bold;
+    font-size: 13px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+
+.snmpbar-section-title {
+    font-weight: 800;
+    font-size: 12px;
+    padding-top: 6px;
+    padding-bottom: 2px;
+    opacity: 1.0 !important;
+}
+
+.snmpbar-menu-row {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+    opacity: 1.0 !important;
+}
+
+.snmpbar-menu-icon {
+    margin-right: 6px;
 }
