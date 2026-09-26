@@ -8,16 +8,16 @@ import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 import GObject from 'gi://GObject';
 
-const MAX_HISTORY = 20;
+const MAX_HISTORY = 25;
 
-// Cairo Sparkline Mini-Graph mit dynamischen Hex-Farben
+// Cairo Sparkline Graph mit anpassbarer Breite, Höhe und Hex-Farben
 const SparklineGraph = GObject.registerClass(
 class SparklineGraph extends St.DrawingArea {
     _init(width = 46, height = 20) {
         super._init({
             width,
             height,
-            style: 'margin-left: 5px; margin-right: 2px;',
+            style: 'margin-left: 2px; margin-right: 2px;',
             y_align: Clutter.ActorAlign.CENTER,
         });
         this._rxHistory = [];
@@ -62,7 +62,8 @@ class SparklineGraph extends St.DrawingArea {
         const cr = this.get_context();
         const [w, h] = this.get_surface_size();
 
-        cr.setSourceRGBA(0, 0, 0, 0.22);
+        // Subtiler dunkler Hintergrundrahmen
+        cr.setSourceRGBA(0, 0, 0, 0.25);
         cr.rectangle(0, 0, w, h);
         cr.fill();
 
@@ -76,8 +77,8 @@ class SparklineGraph extends St.DrawingArea {
 
         const step = w / (MAX_HISTORY - 1);
 
-        // Download
-        cr.setLineWidth(1.6);
+        // 1. Download-Kurve
+        cr.setLineWidth(1.8);
         cr.setSourceRGBA(...this._rxColor);
         const rxOffset = MAX_HISTORY - this._rxHistory.length;
         for (let i = 0; i < this._rxHistory.length; i++) {
@@ -88,8 +89,8 @@ class SparklineGraph extends St.DrawingArea {
         }
         cr.stroke();
 
-        // Upload
-        cr.setLineWidth(1.3);
+        // 2. Upload-Kurve
+        cr.setLineWidth(1.4);
         cr.setSourceRGBA(...this._txColor);
         const txOffset = MAX_HISTORY - this._txHistory.length;
         for (let i = 0; i < this._txHistory.length; i++) {
@@ -111,8 +112,7 @@ export default class SnmpBarExtension extends Extension {
         this._isPolling = false;
         this._backendScript = GLib.build_filenamev([this.path, 'snmp_backend.py']);
 
-        this._totalHistory = { rx: [], tx: [] };
-        this._ifaceHistories = {};
+        this._histories = {}; // Map von key -> { rx: [], tx: [] }
 
         this._buildIndicator();
         this._schedulePoll(1);
@@ -216,6 +216,21 @@ export default class SnmpBarExtension extends Extension {
         this._sparkline.setColors(downColor, upColor);
     }
 
+    _getOrCreateHistory(key) {
+        if (!this._histories[key]) {
+            this._histories[key] = { rx: [], tx: [] };
+        }
+        return this._histories[key];
+    }
+
+    _pushSample(key, rx, tx) {
+        const h = this._getOrCreateHistory(key);
+        h.rx.push(rx);
+        if (h.rx.length > MAX_HISTORY) h.rx.shift();
+        h.tx.push(tx);
+        if (h.tx.length > MAX_HISTORY) h.tx.shift();
+    }
+
     _buildMenu(data) {
         const menu = this._indicator.menu;
         menu.removeAll();
@@ -225,118 +240,155 @@ export default class SnmpBarExtension extends Extension {
         const upColor = this._settings.get_string('color-upload') || '#33d17a';
         const showDropdownGraphs = this._settings.get_boolean('show-dropdown-graphs');
 
-        const styleText = `color: ${textColor}; font-weight: normal;`;
-        const styleBold = `color: ${textColor}; font-weight: bold;`;
         const styleTitle = `color: ${textColor}; font-weight: 800; font-size: 13px;`;
+        const styleSection = `color: ${textColor}; font-weight: bold; font-size: 12px;`;
+        const styleNormal = `color: ${textColor}; font-size: 11px;`;
 
-        // 1. Header (Verbindungsname & Host)
-        const connName = this._settings.get_string('connection-name') || 'Gateway';
-        const hostName = data ? data.host : (this._settings.get_string('host') || '192.0.2.1');
+        const connections = (data && data.connections && data.connections.length > 0)
+            ? data.connections
+            : [{
+                name: this._settings.get_string('connection-name') || 'Gateway',
+                host: this._settings.get_string('host') || '192.0.2.1',
+                aggregated_name: this._settings.get_string('aggregated-name') || 'Load-Balancer Gesamt',
+                total: null,
+                interfaces: []
+            }];
 
-        const headerItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
-        const headerBox = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER });
-        const hostIcon = new St.Icon({
-            icon_name: 'network-server-symbolic',
-            icon_size: 16,
-            style: `margin-right: 8px; color: ${textColor};`,
-        });
-        const headerLabel = new St.Label({
-            text: `${connName} (${hostName})`,
-            style: styleTitle,
-        });
-        headerBox.add_child(hostIcon);
-        headerBox.add_child(headerLabel);
-        headerItem.add_child(headerBox);
-        menu.addMenuItem(headerItem);
-
-        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        // 2. Aggregierte Leistung (Konfigurierbarer Name)
-        const aggName = this._settings.get_string('aggregated-name') || 'Load-Balancer Gesamt';
-        const lbTotal = data ? data.load_balancer.total : null;
-
-        const lbSectionItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
-        const lbTitle = new St.Label({
-            text: aggName,
-            style: styleBold,
-        });
-        lbSectionItem.add_child(lbTitle);
-        menu.addMenuItem(lbSectionItem);
-
-        const lbDownText = lbTotal ? `↓ Downstream: ${lbTotal.rx_formatted} (${lbTotal.rx_bytes_formatted})` : '↓ Downstream: --';
-        const lbUpText = lbTotal ? `↑ Upstream:   ${lbTotal.tx_formatted} (${lbTotal.tx_bytes_formatted})` : '↑ Upstream:   --';
-
-        const lbRatesItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
-        const lbRatesBox = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER });
-        const lbTextCol = new St.BoxLayout({ vertical: true });
-        lbTextCol.add_child(new St.Label({ text: `  ${lbDownText}`, style: styleText }));
-        lbTextCol.add_child(new St.Label({ text: `  ${lbUpText}`, style: styleText }));
-        lbRatesBox.add_child(lbTextCol);
-
-        // Mini-Graph für Gesamtleistung im Dropdown
-        if (showDropdownGraphs) {
-            const totalSpark = new SparklineGraph(54, 22);
-            totalSpark.setColors(downColor, upColor);
-            totalSpark.setHistory(this._totalHistory.rx, this._totalHistory.tx);
-            lbRatesBox.add_child(totalSpark);
-        }
-
-        lbRatesItem.add_child(lbRatesBox);
-        menu.addMenuItem(lbRatesItem);
-
-        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        // 3. Dynamische Schnittstellen mit konfigurierbarem Namen & Graphen
-        const ifacesSectionItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
-        const ifacesTitle = new St.Label({
-            text: 'Schnittstellen',
-            style: styleBold,
-        });
-        ifacesSectionItem.add_child(ifacesTitle);
-        menu.addMenuItem(ifacesSectionItem);
-
-        const interfaces = data ? data.load_balancer.interfaces : [];
-        if (interfaces.length === 0) {
-            const noIfaceItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
-            noIfaceItem.add_child(new St.Label({ text: '  Keine Schnittstellen konfiguriert', style: styleText }));
-            menu.addMenuItem(noIfaceItem);
-        } else {
-            for (const iface of interfaces) {
-                const ifaceItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
-                const ifaceBox = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER });
-
-                const icon = new St.Icon({
-                    icon_name: iface.icon || 'network-wired-symbolic',
-                    icon_size: 15,
-                    style: `margin-right: 8px; color: ${textColor};`,
-                });
-                ifaceBox.add_child(icon);
-
-                const statusTag = iface.is_up ? '[UP]' : '[DOWN]';
-                const labelText = `${iface.name}: ${statusTag}  ↓ ${iface.rx_formatted} | ↑ ${iface.tx_formatted}`;
-                const ifaceLabel = new St.Label({
-                    text: labelText,
-                    style: styleText,
-                });
-                ifaceBox.add_child(ifaceLabel);
-
-                // Mini-Graph für die Schnittstelle im Dropdown
-                if (showDropdownGraphs && iface.show_graph !== false) {
-                    const ifaceSpark = new SparklineGraph(46, 18);
-                    ifaceSpark.setColors(downColor, upColor);
-                    if (this._ifaceHistories[iface.index]) {
-                        ifaceSpark.setHistory(
-                            this._ifaceHistories[iface.index].rx,
-                            this._ifaceHistories[iface.index].tx
-                        );
-                    }
-                    ifaceBox.add_child(ifaceSpark);
-                }
-
-                ifaceItem.add_child(ifaceBox);
-                menu.addMenuItem(ifaceItem);
+        connections.forEach((conn, cIdx) => {
+            if (cIdx > 0) {
+                menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
             }
-        }
+
+            // 1. Header (Verbindungsname & Host)
+            const headerItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
+            const headerBox = new St.BoxLayout({
+                style_class: 'snmpbar-menu-box',
+                vertical: false,
+                y_align: Clutter.ActorAlign.CENTER,
+            });
+            const hostIcon = new St.Icon({
+                icon_name: 'network-server-symbolic',
+                icon_size: 16,
+                style: `margin-right: 8px; color: ${textColor};`,
+            });
+            const headerLabel = new St.Label({
+                text: `${conn.name} (${conn.host})`,
+                style: styleTitle,
+            });
+            headerBox.add_child(hostIcon);
+            headerBox.add_child(headerLabel);
+            headerItem.add_child(headerBox);
+            menu.addMenuItem(headerItem);
+
+            menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+            // 2. Aggregierte Gesamtleistung
+            const total = conn.total;
+            const totalKey = `${conn.id || 'conn_1'}:total`;
+            const totalHist = this._getOrCreateHistory(totalKey);
+
+            const lbItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
+            const lbContainer = new St.BoxLayout({
+                style_class: 'snmpbar-menu-box',
+                vertical: true,
+            });
+
+            // Titel
+            const lbTitle = new St.Label({
+                text: conn.aggregated_name || 'Load-Balancer Gesamt',
+                style: styleSection,
+            });
+            lbContainer.add_child(lbTitle);
+
+            // Großer Graph über den Werten
+            if (showDropdownGraphs) {
+                const totalGraph = new SparklineGraph(320, 36);
+                totalGraph.setColors(downColor, upColor);
+                totalGraph.setHistory(totalHist.rx, totalHist.tx);
+                lbContainer.add_child(totalGraph);
+            }
+
+            // Text-Zeile mit Raten
+            const downText = total ? `↓ ${total.rx_formatted} (${total.rx_bytes_formatted})` : '↓ --';
+            const upText = total ? `↑ ${total.tx_formatted} (${total.tx_bytes_formatted})` : '↑ --';
+            const lbRatesLabel = new St.Label({
+                text: `${downText}    ${upText}`,
+                style: styleNormal,
+            });
+            lbContainer.add_child(lbRatesLabel);
+
+            lbItem.add_child(lbContainer);
+            menu.addMenuItem(lbItem);
+
+            menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+            // 3. Schnittstellen dieser Verbindung
+            const ifacesItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
+            const ifacesContainer = new St.BoxLayout({
+                style_class: 'snmpbar-menu-box',
+                vertical: true,
+            });
+
+            const ifacesTitle = new St.Label({
+                text: 'Schnittstellen',
+                style: styleSection,
+            });
+            ifacesContainer.add_child(ifacesTitle);
+
+            const ifaces = conn.interfaces || [];
+            if (ifaces.length === 0) {
+                ifacesContainer.add_child(new St.Label({
+                    text: '  Keine Schnittstellen konfiguriert',
+                    style: styleNormal,
+                }));
+            } else {
+                ifaces.forEach((iface) => {
+                    const ifaceKey = `${conn.id || 'conn_1'}:${iface.index}`;
+                    const ifaceHist = this._getOrCreateHistory(ifaceKey);
+
+                    const singleIfaceBox = new St.BoxLayout({
+                        vertical: true,
+                        style: 'margin-top: 6px; margin-bottom: 4px;',
+                    });
+
+                    // Kopfzeile: Icon + Name + Status [UP/DOWN]
+                    const topRow = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER });
+                    const icon = new St.Icon({
+                        icon_name: iface.icon || 'network-wired-symbolic',
+                        icon_size: 14,
+                        style: `margin-right: 6px; color: ${textColor};`,
+                    });
+                    const statusTag = iface.is_up ? '[UP]' : '[DOWN]';
+                    const nameLabel = new St.Label({
+                        text: `${iface.name} ${statusTag}`,
+                        style: `font-weight: 600; color: ${textColor}; font-size: 12px;`,
+                    });
+                    topRow.add_child(icon);
+                    topRow.add_child(nameLabel);
+                    singleIfaceBox.add_child(topRow);
+
+                    // Großer Graph über den Schnittstellenwerten
+                    if (showDropdownGraphs && iface.show_graph !== false) {
+                        const ifaceGraph = new SparklineGraph(320, 28);
+                        ifaceGraph.setColors(downColor, upColor);
+                        ifaceGraph.setHistory(ifaceHist.rx, ifaceHist.tx);
+                        singleIfaceBox.add_child(ifaceGraph);
+                    }
+
+                    // Zahlenzeile
+                    const ifaceRatesLabel = new St.Label({
+                        text: `↓ ${iface.rx_formatted} (${iface.rx_bytes_formatted})    ↑ ${iface.tx_formatted} (${iface.tx_bytes_formatted})`,
+                        style: styleNormal,
+                    });
+                    singleIfaceBox.add_child(ifaceRatesLabel);
+
+                    ifacesContainer.add_child(singleIfaceBox);
+                });
+            }
+
+            ifacesItem.add_child(ifacesContainer);
+            menu.addMenuItem(ifacesItem);
+        });
 
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
@@ -368,14 +420,25 @@ export default class SnmpBarExtension extends Extension {
         if (this._isPolling || !this._settings) return;
         this._isPolling = true;
 
-        const host = this._settings.get_string('host') || '192.0.2.1';
-        const comm = this._settings.get_string('community') || 'public';
-        const ver = this._settings.get_string('snmp-version') || 'v2c';
-        const ifacesJson = this._settings.get_string('interfaces-json') || '[]';
+        // Connections laden (oder fallback)
+        let connsJson = this._settings.get_string('connections-json');
+        if (!connsJson || connsJson === '[]') {
+            // Aus Einzelfeldern generieren
+            const single = [{
+                id: 'conn_1',
+                name: this._settings.get_string('connection-name') || 'Gateway',
+                aggregated_name: this._settings.get_string('aggregated-name') || 'Load-Balancer Gesamt',
+                host: this._settings.get_string('host') || '192.0.2.1',
+                community: this._settings.get_string('community') || 'public',
+                version: this._settings.get_string('snmp-version') || 'v2c',
+                interfaces: JSON.parse(this._settings.get_string('interfaces-json') || '[]')
+            }];
+            connsJson = JSON.stringify(single);
+        }
 
         try {
             const proc = Gio.Subprocess.new(
-                ['/usr/bin/python3', this._backendScript, host, comm, ver, ifacesJson],
+                ['/usr/bin/python3', this._backendScript, '--connections', connsJson],
                 Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
             );
 
@@ -405,24 +468,36 @@ export default class SnmpBarExtension extends Extension {
             return;
         }
 
-        const total = data.load_balancer.total;
-        const interfaces = data.load_balancer.interfaces;
+        const connections = data.connections || [];
+        if (connections.length === 0) return;
 
         // Historien puffern
-        this._totalHistory.rx.push(total.rx_bps);
-        if (this._totalHistory.rx.length > MAX_HISTORY) this._totalHistory.rx.shift();
-        this._totalHistory.tx.push(total.tx_bps);
-        if (this._totalHistory.tx.length > MAX_HISTORY) this._totalHistory.tx.shift();
+        connections.forEach(conn => {
+            const totalKey = `${conn.id || 'conn_1'}:total`;
+            this._pushSample(totalKey, conn.total.rx_bps, conn.total.tx_bps);
 
-        for (const iface of interfaces) {
-            if (!this._ifaceHistories[iface.index]) {
-                this._ifaceHistories[iface.index] = { rx: [], tx: [] };
+            conn.interfaces.forEach(iface => {
+                const ifaceKey = `${conn.id || 'conn_1'}:${iface.index}`;
+                this._pushSample(ifaceKey, iface.rx_bps, iface.tx_bps);
+            });
+        });
+
+        // Top-Bar Quelle ermitteln
+        const topbarSource = this._settings.get_string('topbar-source') || 'total';
+        const primaryConn = connections[0];
+        let targetMetric = primaryConn.total;
+        let targetKey = `${primaryConn.id || 'conn_1'}:total`;
+
+        if (topbarSource !== 'total') {
+            // Spezifisches Interface suchen
+            for (const conn of connections) {
+                const found = conn.interfaces.find(i => `if_${i.index}` === topbarSource || String(i.index) === topbarSource);
+                if (found) {
+                    targetMetric = found;
+                    targetKey = `${conn.id || 'conn_1'}:${found.index}`;
+                    break;
+                }
             }
-            const h = this._ifaceHistories[iface.index];
-            h.rx.push(iface.rx_bps);
-            if (h.rx.length > MAX_HISTORY) h.rx.shift();
-            h.tx.push(iface.tx_bps);
-            if (h.tx.length > MAX_HISTORY) h.tx.shift();
         }
 
         const showNumbers = this._settings.get_boolean('show-numbers');
@@ -432,12 +507,12 @@ export default class SnmpBarExtension extends Extension {
         this._sparkline.visible = showGraph;
 
         if (showGraph) {
-            this._sparkline.addSample(total.rx_bps, total.tx_bps);
+            this._sparkline.addSample(targetMetric.rx_bps, targetMetric.tx_bps);
         }
 
         if (showNumbers) {
-            this._downLabel.set_text(`↓ ${total.rx_formatted}`);
-            this._upLabel.set_text(`↑ ${total.tx_formatted}`);
+            this._downLabel.set_text(`↓ ${targetMetric.rx_formatted}`);
+            this._upLabel.set_text(`↑ ${targetMetric.tx_formatted}`);
         }
 
         this._buildMenu(data);

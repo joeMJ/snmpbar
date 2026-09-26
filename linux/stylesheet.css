@@ -24,34 +24,45 @@
     margin-right: 4px;
 }
 
-/* Dropdown Menu: Ausgeprägte Lesbarkeit, sattes Schwarz/Dunkelgrau für helle Themes */
+/* Dropdown Menu Container: Feste Mindestbreite, damit das Menü absolut ruhig steht */
+.snmpbar-menu-box {
+    min-width: 360px;
+    max-width: 440px;
+    padding: 4px 6px;
+}
+
+/* Große Verlaufsgraphen im Dropdown */
+.snmpbar-dropdown-graph-total {
+    margin-top: 4px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+}
+
+.snmpbar-dropdown-graph-iface {
+    margin-top: 3px;
+    margin-bottom: 3px;
+    border-radius: 4px;
+}
+
+/* Dropdown Texte & Icons */
 .snmpbar-menu-header {
-    font-weight: bold;
+    font-weight: 800;
     font-size: 13px;
-    padding-top: 4px;
-    padding-bottom: 4px;
+    padding-top: 3px;
+    padding-bottom: 3px;
 }
 
 .snmpbar-section-title {
-    font-weight: 800;
+    font-weight: bold;
     font-size: 12px;
-    padding-top: 6px;
+    padding-top: 5px;
     padding-bottom: 2px;
-    opacity: 1.0 !important;
 }
 
-.snmpbar-menu-row {
-    font-size: 12px;
+.snmpbar-rate-line {
+    font-size: 11px;
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum";
-    opacity: 1.0 !important;
-}
-
-.snmpbar-menu-icon {
-    margin-right: 6px;
-}
-
-.snmpbar-menu-sparkline {
-    margin-left: 8px;
-    margin-right: 4px;
+    opacity: 0.95;
+    margin-top: 2px;
 }
