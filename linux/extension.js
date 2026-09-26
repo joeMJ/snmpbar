@@ -694,7 +694,7 @@ export default class SnmpBarExtension extends Extension {
                 this._isPolling = false;
                 try {
                     const [, stdout] = source.communicate_utf8_finish(res);
-                    if (stdout) {
+                    if (stdout && this._indicator) {
                         const data = JSON.parse(stdout);
                         this._updateUi(data);
                     }
@@ -709,6 +709,7 @@ export default class SnmpBarExtension extends Extension {
     }
 
     _updateUi(data) {
+        if (!this._indicator) return;
         this._applyLayoutClasses();
 
         if (!data || data.status !== 'ok') {
