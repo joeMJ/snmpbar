@@ -337,6 +337,7 @@ export default class SnmpBarExtension extends Extension {
         const graphUpColor = this._settings.get_string('graph-color-upload') || '#33d17a';
         const showDropdownGraphs = this._settings.get_boolean('show-dropdown-graphs');
         const showUptime = this._settings.get_boolean('show-uptime');
+        const showIfaceUptime = this._settings.get_boolean('show-iface-uptime');
         const unitMode = this._settings.get_string('unit-display') || 'both';
         const unitFmt = this._settings.get_string('bar-unit-format') || 'compact';
 
@@ -491,6 +492,15 @@ export default class SnmpBarExtension extends Extension {
                     topRow.add_child(icon);
                     topRow.add_child(nameLabel);
                     topRow.add_child(statusLabel);
+
+                    if (showIfaceUptime && iface.is_up && iface.uptime_str) {
+                        const ifaceUptimeLabel = new St.Label({
+                            text: ` (${iface.uptime_str})`,
+                            style: `color: ${textColor}; font-size: 11px; opacity: 0.75; margin-left: 4px;`,
+                        });
+                        topRow.add_child(ifaceUptimeLabel);
+                    }
+
                     singleIfaceBox.add_child(topRow);
 
                     // Großer Graph über den Schnittstellenwerten

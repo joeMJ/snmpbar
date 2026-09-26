@@ -271,6 +271,34 @@ def format_uptime(timeticks):
     else:
         return f"{mins} Min."
 
+def format_lancom_duration(dur_str):
+    try:
+        dur_str = str(dur_str).strip()
+        if "D" in dur_str:
+            days_part, time_part = dur_str.split("D")
+            days = int(days_part.strip())
+            parts = time_part.strip().split(":")
+            hours = int(parts[0])
+            mins = int(parts[1]) if len(parts) > 1 else 0
+        elif ":" in dur_str:
+            days = 0
+            parts = dur_str.split(":")
+            hours = int(parts[0])
+            mins = int(parts[1]) if len(parts) > 1 else 0
+        else:
+            return dur_str
+            
+        if days >= 2:
+            return f"seit {days} Tagen, {hours} Std."
+        elif days == 1:
+            return f"seit 1 Tag, {hours} Std."
+        elif hours >= 1:
+            return f"seit {hours} Std., {mins} Min."
+        else:
+            return f"seit {mins} Min."
+    except Exception:
+        return str(dur_str)
+
 # --- Discovery (SNMP Walk) ---
 
 def discover_interfaces(host, community, version_str="v2c"):
@@ -364,12 +392,39 @@ def poll_connections(connections):
                 oids_to_query.append(f"1.3.6.1.2.1.2.2.1.10.{idx}")
                 oids_to_query.append(f"1.3.6.1.2.1.2.2.1.16.{idx}")
             oids_to_query.append(f"1.3.6.1.2.1.2.2.1.8.{idx}")
+            oids_to_query.append(f"1.3.6.1.2.1.2.2.1.9.{idx}")
             
         snmp_data = snmp_get_multiple(host, community, oids_to_query, version=version)
         is_online = bool(snmp_data)
 
         uptime_ticks = snmp_data.get("1.3.6.1.2.1.1.3.0")
         uptime_str = format_uptime(uptime_ticks) if uptime_ticks else ""
+
+        # Lancom aktive Verbindungs-Laufzeiten abrufen
+        lancom_durations = {}
+        if is_online:
+            try:
+                lc_table = snmp_walk(host, community, "1.3.6.1.4.1.2356.11.1.17.1", version=version, max_reps=30, timeout=1.0)
+                if lc_table:
+                    cols = {}
+                    prefix = "1.3.6.1.4.1.2356.11.1.17.1."
+                    for oid, val in lc_table.items():
+                        if oid.startswith(prefix):
+                            suffix = oid[len(prefix):]
+                            parts = suffix.split(".", 1)
+                            if len(parts) == 2:
+                                col = int(parts[0])
+                                row_key = parts[1]
+                                if row_key not in cols:
+                                    cols[row_key] = {}
+                                cols[row_key][col] = val
+                    for rk, row in cols.items():
+                        peer_name = row.get(2)
+                        dur = row.get(5)
+                        if peer_name and dur:
+                            lancom_durations[str(peer_name).upper()] = format_lancom_duration(str(dur))
+            except Exception:
+                pass
         
         total_rx_bps = 0.0
         total_tx_bps = 0.0
@@ -392,6 +447,25 @@ def poll_connections(connections):
             out_raw = snmp_data.get(out_oid)
             oper_raw = snmp_data.get(status_oid, 2)
             is_up = (oper_raw == 1)
+
+            # Leitungs-Laufzeit ermitteln
+            iface_uptime_str = ""
+            if is_up:
+                name_upper = str(iface.get("name", "")).upper()
+                id_upper = str(iface.get("id", "")).upper()
+                # 1. Lancom Active Table Match
+                for p_name, p_dur in lancom_durations.items():
+                    if p_name in name_upper or p_name in id_upper or name_upper in p_name:
+                        iface_uptime_str = p_dur
+                        break
+                # 2. Standard MIB-2 Fallback via ifLastChange oder sysUpTime
+                if not iface_uptime_str and uptime_ticks:
+                    last_chg = snmp_data.get(f"1.3.6.1.2.1.2.2.1.9.{idx}", 0)
+                    if last_chg and last_chg > 0 and uptime_ticks > last_chg:
+                        diff = uptime_ticks - last_chg
+                        iface_uptime_str = f"seit {format_uptime(diff)}"
+                    elif uptime_str:
+                        iface_uptime_str = f"seit {uptime_str}"
             
             rx_bps = 0.0
             tx_bps = 0.0
@@ -425,6 +499,7 @@ def poll_connections(connections):
                 "show_graph": iface.get("show_graph", True),
                 "is_up": is_up,
                 "status_str": "Online" if is_up else "Offline",
+                "uptime_str": iface_uptime_str,
                 "rx_bps": round(rx_bps),
                 "tx_bps": round(tx_bps),
                 "rx_formatted": format_rate(rx_bps, "full"),

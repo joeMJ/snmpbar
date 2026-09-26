@@ -38,6 +38,12 @@
       <description>Ob die Systemlaufzeit des Routers/Gateways (z. B. 'Online seit 16 Tagen, 7 Std.') im Menü angezeigt werden soll.</description>
     </key>
 
+    <key name="show-iface-uptime" type="b">
+      <default>true</default>
+      <summary>Leitungs-Laufzeit der Schnittstellen anzeigen</summary>
+      <description>Ob die Online-Dauer jeder einzelnen aktiven Schnittstelle im Menü angezeigt werden soll (z. B. 'seit 3 Tagen, 6 Std.').</description>
+    </key>
+
     <key name="unit-display" type="s">
       <default>'both'</default>
       <summary>Einheiten-Formatierung</summary>

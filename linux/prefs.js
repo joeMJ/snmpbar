@@ -263,6 +263,13 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         settings.bind('show-uptime', showUptimeRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         menuGroup.add(showUptimeRow);
 
+        const showIfaceUptimeRow = new Adw.SwitchRow({
+            title: _('Leitungs-Laufzeit der Schnittstellen anzeigen'),
+            subtitle: _('Zeigt bei jeder aktiven Leitung die Online-Dauer (z. B. „seit 3 Tagen, 6 Std.“)'),
+        });
+        settings.bind('show-iface-uptime', showIfaceUptimeRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        menuGroup.add(showIfaceUptimeRow);
+
         menuGroup.add(createColorRow(
             _('Dropdown-Schriftfarbe'),
             _('Kontrastreiche Textfarbe für das Menü'),
