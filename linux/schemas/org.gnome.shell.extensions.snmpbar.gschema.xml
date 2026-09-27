@@ -38,6 +38,12 @@
       <description>Ob die Systemlaufzeit des Routers/Gateways (z. B. 'Online seit 16 Tagen, 7 Std.') im Menü angezeigt werden soll.</description>
     </key>
 
+    <key name="show-gateway-ip" type="b">
+      <default>true</default>
+      <summary>Interne Gateway-IP im Dropdown anzeigen</summary>
+      <description>Ob die interne IP-Adresse des Routers im Kopf der Standort-Karte (z. B. '(192.0.2.1)') angezeigt werden soll.</description>
+    </key>
+
     <key name="show-iface-uptime" type="b">
       <default>true</default>
       <summary>Leitungs-Laufzeit der Schnittstellen anzeigen</summary>

@@ -446,6 +446,7 @@ export default class SnmpBarExtension extends Extension {
 
         const showDropdownGraphs = this._getBool('show-dropdown-graphs', true);
         const showUptime = this._getBool('show-uptime', true);
+        const showGatewayIp = this._getBool('show-gateway-ip', true);
         const showIfaceUptime = this._getBool('show-iface-uptime', true);
         const unitMode = this._getStr('unit-display', 'both');
         const unitFmt = this._getStr('bar-unit-format', 'compact');
@@ -484,8 +485,11 @@ export default class SnmpBarExtension extends Extension {
                 icon_size: 16,
                 style: `margin-right: 8px; color: ${textColor};`,
             });
+            const titleText = (showGatewayIp && conn.host)
+                ? `${conn.name} (${conn.host})`
+                : conn.name;
             const headerLabel = new St.Label({
-                text: `${conn.name} (${conn.host})`,
+                text: titleText,
                 style: styleTitle,
             });
             titleRow.add_child(hostIcon);

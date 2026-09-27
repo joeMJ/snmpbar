@@ -339,6 +339,13 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         settings.bind('show-uptime', showUptimeRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         menuGroup.add(showUptimeRow);
 
+        const showGatewayIpRow = new Adw.SwitchRow({
+            title: _('Interne Gateway-IP anzeigen'),
+            subtitle: _('Zeigt die IP-Adresse des Routers im Kopf der Standort-Karte (z. B. „(192.0.2.1)“)'),
+        });
+        settings.bind('show-gateway-ip', showGatewayIpRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        menuGroup.add(showGatewayIpRow);
+
         const showIfaceUptimeRow = new Adw.SwitchRow({
             title: _('Leitungs-Laufzeit der Schnittstellen anzeigen'),
             subtitle: _('Zeigt bei jeder aktiven Leitung die Online-Dauer (z. B. „seit 3 Tagen, 6 Std.“)'),
@@ -714,6 +721,48 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                         saveConnections(list);
                     });
                     ifaceExpander.add_row(ifaceNameRow);
+
+                    // Minimalistische GNOME-Symbolic-Icon-Auswahl
+                    const MINIMAL_ICONS = [
+                        { id: 'network-wired-symbolic', label: _('Kabel / DSL / Ethernet') },
+                        { id: 'network-cellular-signal-excellent-symbolic', label: _('5G / LTE / Mobilfunk') },
+                        { id: 'network-transmit-receive-symbolic', label: _('Glasfaser / Fiber / SFP') },
+                        { id: 'network-wireless-symbolic', label: _('WLAN / Wi-Fi') },
+                        { id: 'network-vpn-symbolic', label: _('VPN / Tunnel') },
+                        { id: 'computer-symbolic', label: _('Lokaler Computer / ThinkPad') },
+                        { id: 'security-high-symbolic', label: _('Firewall / Schutz') },
+                        { id: 'drive-harddisk-symbolic', label: _('Server / Storage') },
+                        { id: 'applications-internet-symbolic', label: _('Internet / WAN') },
+                    ];
+
+                    const curIcon = iface.icon || 'network-wired-symbolic';
+                    let selIconIdx = MINIMAL_ICONS.findIndex(i => i.id === curIcon);
+                    if (selIconIdx < 0) selIconIdx = 0;
+
+                    const iconListModel = Gtk.StringList.new(MINIMAL_ICONS.map(i => i.label));
+                    const iconComboRow = new Adw.ComboRow({
+                        title: _('Symbol / Icon'),
+                        subtitle: _('Minimalistisches GNOME-Symbolic-Icon für diese Leitung'),
+                        model: iconListModel,
+                        selected: selIconIdx,
+                    });
+
+                    const iconPreview = new Gtk.Image({
+                        icon_name: curIcon,
+                        pixel_size: 18,
+                        valign: Gtk.Align.CENTER,
+                    });
+                    iconComboRow.add_suffix(iconPreview);
+
+                    iconComboRow.connect('notify::selected', () => {
+                        const picked = MINIMAL_ICONS[iconComboRow.selected];
+                        if (picked) {
+                            iface.icon = picked.id;
+                            iconPreview.set_from_icon_name(picked.id);
+                            saveConnections(list);
+                        }
+                    });
+                    ifaceExpander.add_row(iconComboRow);
 
                     const ifaceGraphRow = new Adw.SwitchRow({
                         title: _('Graph im Dropdown anzeigen'),

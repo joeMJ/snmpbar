@@ -13,6 +13,7 @@ import json
 import time
 import socket
 import struct
+import ipaddress
 
 CACHE_FILE = "/dev/shm/snmpbar_state.json"
 
@@ -299,6 +300,89 @@ def format_lancom_duration(dur_str):
     except Exception:
         return str(dur_str)
 
+# --- IP-Klassifizierung & LANCOM WAN / QoS Peer-Details ---
+
+def classify_ip(ip_str):
+    if not ip_str:
+        return {"ip": "", "is_cgnat": False, "type": ""}
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        if ip in ipaddress.ip_network("100.64.0.0/10"):
+            return {"ip": ip_str, "is_cgnat": True, "type": "CGNAT (RFC 6598)"}
+        elif ip.is_private:
+            return {"ip": ip_str, "is_cgnat": True, "type": "CGNAT (Carrier-Private)"}
+        elif ip.is_global:
+            return {"ip": ip_str, "is_cgnat": False, "type": "Public IPv4"}
+        return {"ip": ip_str, "is_cgnat": False, "type": "Other"}
+    except Exception:
+        return {"ip": ip_str, "is_cgnat": False, "type": ""}
+
+def fetch_lancom_peer_details(host, community, version=1):
+    peers = {}
+    # 1. Active Table: Laufzeiten (1.3.6.1.4.1.2356.11.1.17.1)
+    try:
+        t17 = snmp_walk(host, community, "1.3.6.1.4.1.2356.11.1.17.1", version=version, max_reps=30, timeout=0.8)
+        cols17 = {}
+        p17 = "1.3.6.1.4.1.2356.11.1.17.1."
+        for oid, val in t17.items():
+            if oid.startswith(p17):
+                parts = oid[len(p17):].split(".", 1)
+                if len(parts) == 2:
+                    c, rk = int(parts[0]), parts[1]
+                    cols17.setdefault(rk, {})[c] = val
+        for rk, row in cols17.items():
+            p_name = row.get(2)
+            dur = row.get(5)
+            if p_name and dur:
+                name_str = str(p_name).upper()
+                peers.setdefault(name_str, {})["uptime"] = format_lancom_duration(str(dur))
+    except Exception:
+        pass
+
+    # 2. WAN IP Table (1.3.6.1.4.1.2356.11.1.4.13.1.1)
+    try:
+        t13 = snmp_walk(host, community, "1.3.6.1.4.1.2356.11.1.4.13.1.1", version=version, max_reps=50, timeout=0.8)
+        p13 = "1.3.6.1.4.1.2356.11.1.4.13.1.1."
+        for oid, val in t13.items():
+            if oid.startswith(p13):
+                parts = oid[len(p13):].split(".")
+                col = int(parts[0])
+                peer_bytes = bytes([int(x) for x in parts[2:]])
+                p_name = peer_bytes.decode("utf-8", errors="ignore").upper()
+                entry = peers.setdefault(p_name, {})
+                if col == 3 and isinstance(val, bytes) and len(val) == 4:
+                    ip_str = ".".join(str(b) for b in val)
+                    cl = classify_ip(ip_str)
+                    entry["ip"] = ip_str
+                    entry["is_cgnat"] = cl["is_cgnat"]
+                    entry["ip_type"] = cl["type"]
+                elif col in (6, 7) and isinstance(val, bytes) and len(val) == 4:
+                    dns = ".".join(str(b) for b in val)
+                    if dns != "0.0.0.0":
+                        entry.setdefault("dns", []).append(dns)
+    except Exception:
+        pass
+
+    # 3. QoS / Shaper Table (1.3.6.1.4.1.2356.11.1.4.46.1)
+    try:
+        t46 = snmp_walk(host, community, "1.3.6.1.4.1.2356.11.1.4.46.1", version=version, max_reps=50, timeout=0.8)
+        p46 = "1.3.6.1.4.1.2356.11.1.4.46.1."
+        for oid, val in t46.items():
+            if oid.startswith(p46):
+                parts = oid[len(p46):].split(".")
+                col = int(parts[0])
+                peer_bytes = bytes([int(x) for x in parts[2:]])
+                p_name = peer_bytes.decode("utf-8", errors="ignore").upper()
+                entry = peers.setdefault(p_name, {})
+                if col == 2: entry["max_tx_kbit"] = val
+                elif col == 3: entry["max_rx_kbit"] = val
+                elif col == 8: entry["shaper_tx_kbit"] = val
+                elif col == 9: entry["shaper_rx_kbit"] = val
+    except Exception:
+        pass
+
+    return peers
+
 # --- Discovery (SNMP Walk) ---
 
 def discover_interfaces(host, community, version_str="v2c"):
@@ -397,6 +481,8 @@ def poll_connections(connections):
             oids_to_query.append(f"1.3.6.1.2.1.2.2.1.8.{idx}")
             oids_to_query.append(f"1.3.6.1.2.1.2.2.1.7.{idx}")
             oids_to_query.append(f"1.3.6.1.2.1.2.2.1.9.{idx}")
+            oids_to_query.append(f"1.3.6.1.2.1.2.2.1.5.{idx}")
+            oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.15.{idx}")
             oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.18.{idx}")
             oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.1.{idx}")
             oids_to_query.append(f"1.3.6.1.2.1.2.2.1.2.{idx}")
@@ -407,31 +493,10 @@ def poll_connections(connections):
         uptime_ticks = snmp_data.get("1.3.6.1.2.1.1.3.0")
         uptime_str = format_uptime(uptime_ticks) if uptime_ticks else ""
 
-        # Lancom aktive Verbindungs-Laufzeiten abrufen
-        lancom_durations = {}
+        # Lancom Verbindungs-Laufzeiten, WAN-IPs & QoS-Shaper abrufen
+        lancom_peers = {}
         if is_online:
-            try:
-                lc_table = snmp_walk(host, community, "1.3.6.1.4.1.2356.11.1.17.1", version=version, max_reps=30, timeout=1.0)
-                if lc_table:
-                    cols = {}
-                    prefix = "1.3.6.1.4.1.2356.11.1.17.1."
-                    for oid, val in lc_table.items():
-                        if oid.startswith(prefix):
-                            suffix = oid[len(prefix):]
-                            parts = suffix.split(".", 1)
-                            if len(parts) == 2:
-                                col = int(parts[0])
-                                row_key = parts[1]
-                                if row_key not in cols:
-                                    cols[row_key] = {}
-                                cols[row_key][col] = val
-                    for rk, row in cols.items():
-                        peer_name = row.get(2)
-                        dur = row.get(5)
-                        if peer_name and dur:
-                            lancom_durations[str(peer_name).upper()] = format_lancom_duration(str(dur))
-            except Exception:
-                pass
+            lancom_peers = fetch_lancom_peer_details(host, community, version=version)
         
         total_rx_bps = 0.0
         total_tx_bps = 0.0
@@ -479,30 +544,71 @@ def poll_connections(connections):
             # 2. Wenn aktiver Durchsatz gemessen wird (rx_bps > 50 oder tx_bps > 50) -> Online (z.B. WAN-Bridges wie XDSL-1)
             is_up = (oper_raw == 1) or (rx_bps > 50 or tx_bps > 50)
 
-            # Leitungs-Laufzeit ermitteln
+            # Leitungs-Laufzeit, WAN-IP, CGNAT, Sync & QoS ermitteln
             iface_uptime_str = ""
-            if is_up:
-                alias_snmp = str(snmp_data.get(f"1.3.6.1.2.1.31.1.1.1.18.{idx}", "")).upper()
-                name_snmp = str(snmp_data.get(f"1.3.6.1.2.1.31.1.1.1.1.{idx}", "")).upper()
-                descr_snmp = str(snmp_data.get(f"1.3.6.1.2.1.2.2.1.2.{idx}", "")).upper()
-                user_name = str(iface.get("name", "")).upper()
-                user_id = str(iface.get("id", "")).upper()
-                tokens = [alias_snmp, name_snmp, descr_snmp, user_name, user_id]
+            matched_peer = None
+            alias_snmp = str(snmp_data.get(f"1.3.6.1.2.1.31.1.1.1.18.{idx}", "")).upper()
+            name_snmp = str(snmp_data.get(f"1.3.6.1.2.1.31.1.1.1.1.{idx}", "")).upper()
+            descr_snmp = str(snmp_data.get(f"1.3.6.1.2.1.2.2.1.2.{idx}", "")).upper()
+            user_name = str(iface.get("name", "")).upper()
+            user_id = str(iface.get("id", "")).upper()
+            tokens = [alias_snmp, name_snmp, descr_snmp, user_name, user_id]
 
-                # 1. Lancom Active Table Match (sucht nach Übereinstimmung mit Peer-Name)
-                for p_name, p_dur in lancom_durations.items():
-                    if any(p_name and (p_name in tok or tok in p_name) for tok in tokens if tok):
-                        iface_uptime_str = p_dur
-                        break
+            # 1. Lancom Peer Match
+            for p_name, p_data in lancom_peers.items():
+                if any(p_name and (p_name in tok or tok in p_name) for tok in tokens if tok):
+                    matched_peer = p_data
+                    break
+            
+            # Fallback bei Single-Interface Routern mit 1 WAN-Peer (z.B. Standort / Standort)
+            if not matched_peer and len(lancom_peers) == 1 and len(ifaces) == 1:
+                matched_peer = next(iter(lancom_peers.values()))
+            elif not matched_peer and "INTERNET" in lancom_peers and any("DSL" in tok or "WAN" in tok or "FIBER" in tok or "GLAS" in tok for tok in tokens if tok):
+                matched_peer = lancom_peers["INTERNET"]
 
-                # 2. Standard MIB-2 Fallback via ifLastChange oder sysUpTime
-                if not iface_uptime_str and uptime_ticks:
-                    last_chg = snmp_data.get(f"1.3.6.1.2.1.2.2.1.9.{idx}", 0)
-                    if last_chg and last_chg > 0 and uptime_ticks > last_chg:
-                        diff = uptime_ticks - last_chg
-                        iface_uptime_str = f"seit {format_uptime(diff)}"
-                    elif uptime_str:
-                        iface_uptime_str = f"seit {uptime_str}"
+            ext_ip = ""
+            is_cgnat = False
+            ip_type = ""
+            dns_servers = []
+            sync_rx = 0
+            sync_tx = 0
+            shaper_rx = 0
+            shaper_tx = 0
+            sync_str = ""
+            qos_str = ""
+
+            speed_raw = snmp_data.get(f"1.3.6.1.2.1.2.2.1.5.{idx}", 0) or 0
+            high_speed_raw = snmp_data.get(f"1.3.6.1.2.1.31.1.1.1.15.{idx}", 0) or 0
+            speed_mbps = float(high_speed_raw) if high_speed_raw > 0 else round(speed_raw / 1_000_000.0, 1)
+
+            if matched_peer:
+                if is_up:
+                    iface_uptime_str = matched_peer.get("uptime", "")
+                ext_ip = matched_peer.get("ip", "")
+                is_cgnat = matched_peer.get("is_cgnat", False)
+                ip_type = matched_peer.get("ip_type", "")
+                dns_servers = matched_peer.get("dns", [])
+                sync_rx = matched_peer.get("max_rx_kbit", 0)
+                sync_tx = matched_peer.get("max_tx_kbit", 0)
+                shaper_rx = matched_peer.get("shaper_rx_kbit", 0)
+                shaper_tx = matched_peer.get("shaper_tx_kbit", 0)
+
+            if sync_rx > 0 and sync_tx > 0:
+                sync_str = f"↓ {sync_rx / 1000.0:.1f} Mbit · ↑ {sync_tx / 1000.0:.1f} Mbit"
+            elif speed_mbps > 0:
+                sync_str = f"Sync: {speed_mbps:.1f} Mbit"
+
+            if shaper_rx > 0 and shaper_tx > 0:
+                qos_str = f"↓ {shaper_rx / 1000.0:.1f} Mbit · ↑ {shaper_tx / 1000.0:.1f} Mbit"
+
+            # 2. Standard MIB-2 Fallback via ifLastChange oder sysUpTime
+            if is_up and not iface_uptime_str and uptime_ticks:
+                last_chg = snmp_data.get(f"1.3.6.1.2.1.2.2.1.9.{idx}", 0)
+                if last_chg and last_chg > 0 and uptime_ticks > last_chg:
+                    diff = uptime_ticks - last_chg
+                    iface_uptime_str = f"seit {format_uptime(diff)}"
+                elif uptime_str:
+                    iface_uptime_str = f"seit {uptime_str}"
                     
             if is_up or rx_bps > 0 or tx_bps > 0:
                 total_rx_bps += rx_bps
@@ -519,6 +625,17 @@ def poll_connections(connections):
                 "is_up": is_up,
                 "status_str": "Online" if is_up else "Offline",
                 "uptime_str": iface_uptime_str,
+                "external_ip": ext_ip,
+                "is_cgnat": is_cgnat,
+                "ip_type": ip_type,
+                "dns_servers": dns_servers,
+                "sync_rx_kbit": sync_rx,
+                "sync_tx_kbit": sync_tx,
+                "sync_formatted": sync_str,
+                "qos_rx_kbit": shaper_rx,
+                "qos_tx_kbit": shaper_tx,
+                "qos_formatted": qos_str,
+                "speed_mbps": speed_mbps,
                 "rx_bps": round(rx_bps),
                 "tx_bps": round(tx_bps),
                 "rx_formatted": format_rate(rx_bps, "full"),
