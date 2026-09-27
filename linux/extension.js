@@ -338,6 +338,7 @@ export default class SnmpBarExtension extends Extension {
         this._isSpeedtesting = false;
         this._speedtestResult = null;
         this._speedtestMenuItem = null;
+        this._orbTestingSensors = new Set();
 
         const savedSt = this._getStr('speedtest-result', '');
         if (savedSt) {
@@ -412,6 +413,7 @@ export default class SnmpBarExtension extends Extension {
         this._isSpeedtesting = false;
         this._speedtestResult = null;
         this._speedtestMenuItem = null;
+        this._orbTestingSensors = null;
         this._settings = null;
         console.log(`[snmpbar] Extension ${this.uuid} deaktiviert.`);
     }
@@ -486,6 +488,76 @@ export default class SnmpBarExtension extends Extension {
         } catch (err) {
             this._isSpeedtesting = false;
             console.error(`[snmpbar] Konnte Speedtest nicht starten: ${err}`);
+            if (this._lastData) {
+                this._buildMenu(this._lastData);
+            }
+        }
+    }
+
+    _triggerOrbSpeedtest(conn) {
+        if (!conn) return;
+        const orbToken = this._getStr('orb-api-token', '');
+        const targetSensor = (conn.orb && (conn.orb.orb_id || conn.orb.name)) || conn.orb_name;
+        if (!orbToken || !targetSensor) {
+            Main.notify(_('Orbspeed'), _('Kein ORB-Sensor oder Token für diesen Standort hinterlegt.'));
+            return;
+        }
+
+        if (!this._orbTestingSensors) {
+            this._orbTestingSensors = new Set();
+        }
+
+        const sensorKey = conn.id || targetSensor;
+        if (this._orbTestingSensors.has(sensorKey)) {
+            return;
+        }
+
+        this._orbTestingSensors.add(sensorKey);
+        if (this._lastData) {
+            this._buildMenu(this._lastData);
+        }
+
+        Main.osdWindowManager.show(
+            -1,
+            Gio.Icon.new_for_string('speedometer-symbolic'),
+            `Orbspeed: Messung auf „${conn.name}“ gestartet...`
+        );
+
+        try {
+            const proc = Gio.Subprocess.new(
+                ['/usr/bin/python3', this._backendScript, '--trigger-orb-speedtest', orbToken, targetSensor],
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+            );
+
+            proc.communicate_utf8_async(null, null, (source, res) => {
+                if (this._orbTestingSensors) {
+                    this._orbTestingSensors.delete(sensorKey);
+                }
+                try {
+                    const [, stdout] = source.communicate_utf8_finish(res);
+                    if (stdout) {
+                        const parsed = JSON.parse(stdout);
+                        if (parsed && parsed.status === 'ok') {
+                            Main.osdWindowManager.show(
+                                -1,
+                                Gio.Icon.new_for_string('speedometer-symbolic'),
+                                `Orbspeed ${conn.name}: ↓ ${parsed.download_mbps || '--'} Mbit · ↑ ${parsed.upload_mbps || '--'} Mbit`
+                            );
+                        } else if (parsed && parsed.message) {
+                            Main.notify(_('Orbspeed Fehler'), parsed.message);
+                        }
+                    }
+                } catch (e) {
+                    console.error(`[snmpbar] Fehler beim Orbspeed-Test: ${e}`);
+                } finally {
+                    this._schedulePoll(1);
+                }
+            });
+        } catch (err) {
+            if (this._orbTestingSensors) {
+                this._orbTestingSensors.delete(sensorKey);
+            }
+            console.error(`[snmpbar] Subprocess-Start für Orbspeed fehlgeschlagen: ${err}`);
             if (this._lastData) {
                 this._buildMenu(this._lastData);
             }
@@ -1401,44 +1473,94 @@ export default class SnmpBarExtension extends Extension {
                 titleRow.style = (titleRow.style || '') + ' margin-bottom: 6px;';
             }
 
-            // Speedtest-Telemetrie (Heimat-Gateway)
-            if (cIdx === 0 && this._speedtestResult && this._speedtestResult.status === 'ok') {
-                const st = this._speedtestResult;
+            // Orbspeed- bzw. Speedtest-Telemetrie (Heimat- und Remote-Gateways)
+            const sensorKey = conn.id || (conn.orb && (conn.orb.orb_id || conn.orb.name)) || conn.orb_name;
+            const isOrbTesting = this._orbTestingSensors && this._orbTestingSensors.has(sensorKey);
+
+            if (isOrbTesting) {
                 const stRow = new St.BoxLayout({
                     vertical: false,
                     y_align: Clutter.ActorAlign.CENTER,
                     style: 'margin-left: 24px; margin-top: 1px; margin-bottom: 4px;',
                 });
                 const stIcon = new St.Icon({
-                    icon_name: 'speedometer-symbolic',
+                    icon_name: 'emblem-synchronizing-symbolic',
                     icon_size: 12,
-                    style: `margin-right: 5px; color: ${textColor}; opacity: 0.7;`,
+                    style: `margin-right: 5px; color: ${isDarkMode ? '#3584e4' : '#1c71d8'};`,
                 });
-                const timeAgo = this._formatTimeAgo(st.timestamp);
-                const pingText = st.ping_ms ? `${st.ping_ms} ms` : '';
-                const metaParts = [];
-                if (pingText) metaParts.push(pingText);
-                if (timeAgo) metaParts.push(timeAgo);
-                const metaStr = metaParts.length > 0 ? ` (${metaParts.join(' · ')})` : '';
                 const stLabel = new St.Label({
-                    text: `Speedtest: ↓ ${st.download_mbps} Mbit · ↑ ${st.upload_mbps} Mbit${metaStr}`,
-                    style: `color: ${textColor}; font-size: 11px; opacity: 0.85; font-weight: 500;`,
+                    text: `Orbspeed: Messung läuft... (~15s)`,
+                    style: `color: ${isDarkMode ? '#3584e4' : '#1c71d8'}; font-size: 11px; font-weight: 600;`,
                 });
                 stRow.add_child(stIcon);
                 stRow.add_child(stLabel);
                 cardBox.add_child(stRow);
+            } else {
+                let speedData = null;
+                if (conn.orb && conn.orb.download_mbps != null) {
+                    speedData = {
+                        download_mbps: conn.orb.download_mbps,
+                        upload_mbps: conn.orb.upload_mbps,
+                        ping_ms: conn.orb.ping_ms,
+                        timestamp: conn.orb.timestamp || (Date.now() / 1000),
+                    };
+                } else if (cIdx === 0 && this._speedtestResult && this._speedtestResult.status === 'ok') {
+                    speedData = this._speedtestResult;
+                }
+
+                if (speedData) {
+                    const stRow = new St.BoxLayout({
+                        vertical: false,
+                        y_align: Clutter.ActorAlign.CENTER,
+                        style: 'margin-left: 24px; margin-top: 1px; margin-bottom: 4px;',
+                    });
+                    const stIcon = new St.Icon({
+                        icon_name: 'speedometer-symbolic',
+                        icon_size: 12,
+                        style: `margin-right: 5px; color: ${textColor}; opacity: 0.7;`,
+                    });
+                    const timeAgo = this._formatTimeAgo(speedData.timestamp);
+                    const pingText = speedData.ping_ms ? `${speedData.ping_ms} ms` : '';
+                    const metaParts = [];
+                    if (pingText) metaParts.push(pingText);
+                    if (timeAgo) metaParts.push(timeAgo);
+                    const metaStr = metaParts.length > 0 ? ` (${metaParts.join(' · ')})` : '';
+                    const stLabel = new St.Label({
+                        text: `Orbspeed: ↓ ${speedData.download_mbps} Mbit · ↑ ${speedData.upload_mbps} Mbit${metaStr}`,
+                        style: `color: ${textColor}; font-size: 11px; opacity: 0.85; font-weight: 500;`,
+                    });
+                    stRow.add_child(stIcon);
+                    stRow.add_child(stLabel);
+
+                    if (conn.orb || conn.orb_name) {
+                        stRow.reactive = true;
+                        stRow.can_focus = true;
+                        stRow.track_hover = true;
+                        stRow.connect('enter-event', () => { stRow.opacity = 200; });
+                        stRow.connect('leave-event', () => { stRow.opacity = 255; });
+                        stRow.connect('button-press-event', () => {
+                            this._triggerOrbSpeedtest(conn);
+                            return Clutter.EVENT_STOP;
+                        });
+                    }
+
+                    cardBox.add_child(stRow);
+                }
             }
 
-            // ORB-Telemetriezeile im Gateway-Kopf (unter Uptime bzw. Speedtest)
+            // ORB-Telemetriezeile im Gateway-Kopf (unter Uptime bzw. Orbspeed)
             if (conn.orb && conn.orb.score != null) {
                 const orb = conn.orb;
                 const orbRow = new St.BoxLayout({
                     vertical: false,
                     y_align: Clutter.ActorAlign.CENTER,
-                    style: 'margin-left: 24px; margin-top: 1px; margin-bottom: 6px;',
+                    style: 'margin-left: 26px; margin-top: 1px; margin-bottom: 6px;',
+                    reactive: true,
+                    can_focus: true,
+                    track_hover: true,
                 });
 
-                // Gesamt-Score Pill
+                // Gesamt-Score Pill (exakt bündig zur optischen Außenkante der Icons darüber)
                 const scoreVal = typeof orb.score === 'number' ? orb.score : parseInt(orb.score, 10);
                 const scoreText = !isNaN(scoreVal) ? String(scoreVal) : '--';
                 let scoreBg = isDarkMode ? 'rgba(51, 209, 122, 0.2)' : 'rgba(38, 162, 105, 0.15)';
@@ -1453,7 +1575,7 @@ export default class SnmpBarExtension extends Extension {
                     }
                 }
                 const scoreBadge = new St.Label({
-                    text: ` ${scoreText} `,
+                    text: scoreText,
                     style: `background-color: ${scoreBg}; color: ${scoreColor}; font-weight: bold; font-size: 10px; border-radius: 4px; padding: 1px 5px; margin-right: 8px;`,
                 });
                 orbRow.add_child(scoreBadge);
@@ -1510,6 +1632,14 @@ export default class SnmpBarExtension extends Extension {
                 });
                 orbRow.add_child(spdIcon);
                 orbRow.add_child(spdLbl);
+
+                // Hover-Effekt und Klick-Ausführung für Speedtest
+                orbRow.connect('enter-event', () => { orbRow.opacity = 200; });
+                orbRow.connect('leave-event', () => { orbRow.opacity = 255; });
+                orbRow.connect('button-press-event', () => {
+                    this._triggerOrbSpeedtest(conn);
+                    return Clutter.EVENT_STOP;
+                });
 
                 cardBox.add_child(orbRow);
             }
@@ -1769,10 +1899,11 @@ export default class SnmpBarExtension extends Extension {
         const enableRep = this._getBool('enable-ip-reputation', true) ? 'true' : 'false';
         const apivoidKey = this._getStr('apivoid-api-key', '');
         const orbToken = this._getStr('orb-api-token', '');
+        const orbTimespan = this._getStr('orb-timespan', '24h');
 
         try {
             const proc = Gio.Subprocess.new(
-                ['/usr/bin/python3', this._backendScript, '--connections', connsJson, enableRep, apivoidKey, orbToken],
+                ['/usr/bin/python3', this._backendScript, '--connections', connsJson, enableRep, apivoidKey, orbToken, orbTimespan],
                 Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
             );
 

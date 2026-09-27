@@ -285,5 +285,11 @@
       <description>Bearer API-Token für panel.orb.net zur Abfrage von Netzwerk-Experience-Scores (Responsiveness, Zuverlässigkeit, Speed).</description>
     </key>
 
+    <key name="orb-timespan" type="s">
+      <default>'24h'</default>
+      <summary>ORB Score Zeitfenster</summary>
+      <description>Zeitfenster für die Berechnung der ORB-Scores: '24h', '1h', '5m', '1m'.</description>
+    </key>
+
   </schema>
 </schemalist>

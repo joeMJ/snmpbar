@@ -1170,6 +1170,32 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         });
         orbGroup.add(orbTokenRow);
 
+        // Zeitfenster für ORB-Scores (5m, 1h, 24h, 1m)
+        const TIMESPAN_OPTIONS = [
+            { id: '24h', label: _('24 Stunden (24h) — Standard / Ausgeglichen') },
+            { id: '1h', label: _('1 Stunde (1h) — Mittelfristig') },
+            { id: '5m', label: _('5 Minuten (5m) — Kurzfristig / Reaktiv') },
+            { id: '1m', label: _('1 Minute (1m) — Live / Echtzeit') },
+        ];
+        const curTimespan = settings.get_string('orb-timespan') || '24h';
+        let selTimespanIdx = TIMESPAN_OPTIONS.findIndex(t => t.id === curTimespan);
+        if (selTimespanIdx < 0) selTimespanIdx = 0;
+
+        const timespanModel = Gtk.StringList.new(TIMESPAN_OPTIONS.map(t => t.label));
+        const timespanRow = new Adw.ComboRow({
+            title: _('Berechnungszeitfenster für Orbscores'),
+            subtitle: _('Zeitraum für Gesamt-Score, Responsiveness, Zuverlässigkeit und Speed'),
+            model: timespanModel,
+            selected: selTimespanIdx,
+        });
+        timespanRow.connect('notify::selected', () => {
+            const picked = TIMESPAN_OPTIONS[timespanRow.selected];
+            if (picked) {
+                settings.set_string('orb-timespan', picked.id);
+            }
+        });
+        orbGroup.add(timespanRow);
+
         const fetchOrbsRow = new Adw.ActionRow({
             title: _('ORB-Sensoren synchronisieren'),
             subtitle: _('Ruft alle in der Organisation registrierten Sensoren ab und aktualisiert die Auswahllisten'),

@@ -567,17 +567,26 @@ def run_speedtest():
 
 # --- ORB Cloud Integration (orb.net) ---
 
-def extract_orb_metrics(dev):
+def extract_orb_metrics(dev, timespan="24h"):
     raw = dev.get("raw_summary") or dev.get("summary") or {}
+    orb_scores = raw.get("orb_scores") or []
+
+    timespan_map = {
+        "24h": 86400000,
+        "1h": 3600000,
+        "5m": 300000,
+        "1m": 60000
+    }
+    target_duration = timespan_map.get(timespan, 86400000)
 
     score_source = None
-    if isinstance(raw.get("orb_scores"), list):
-        for s in raw["orb_scores"]:
-            if s.get("duration_ms") == 86400000:
+    if isinstance(orb_scores, list):
+        for s in orb_scores:
+            if s.get("duration_ms") == target_duration:
                 score_source = s
                 break
-        if not score_source and raw["orb_scores"]:
-            score_source = raw["orb_scores"][-1]
+        if not score_source and orb_scores:
+            score_source = orb_scores[-1]
 
     if not score_source and isinstance(raw.get("orb_score"), dict):
         score_source = raw["orb_score"]
@@ -612,6 +621,44 @@ def extract_orb_metrics(dev):
             bv = b_comp["score"]
             speed = round(bv if bv > 1 else bv * 100)
 
+    # Letzte gemessene Bandbreite (Orbspeed) & Latenz
+    bw_source = None
+    if isinstance(orb_scores, list):
+        for dur in [60000, 300000, target_duration]:
+            for s in orb_scores:
+                if s.get("duration_ms") == dur:
+                    comps = s.get("components") or {}
+                    b_sub = (comps.get("bandwidth_score") or {}).get("components") or {}
+                    if "download_bandwidth_kbps" in b_sub:
+                        bw_source = s
+                        break
+            if bw_source:
+                break
+        if not bw_source and orb_scores:
+            bw_source = orb_scores[0]
+
+    dl_mbps = None
+    ul_mbps = None
+    ping_ms = None
+    if bw_source:
+        comps = bw_source.get("components") or {}
+        b_sub = (comps.get("bandwidth_score") or {}).get("components") or {}
+        dl_obj = b_sub.get("download_bandwidth_kbps") or {}
+        if "value" in dl_obj and dl_obj["value"] is not None:
+            dl_mbps = round(dl_obj["value"] / 1000.0, 1)
+
+        ul_obj = b_sub.get("upload_bandwidth_kbps") or {}
+        if "value" in ul_obj and ul_obj["value"] is not None:
+            ul_mbps = round(ul_obj["value"] / 1000.0, 1)
+
+        r_sub = (comps.get("responsiveness_score") or {}).get("components") or {}
+        lag_obj = r_sub.get("internet_lag_us") or {}
+        if "value" in lag_obj and lag_obj["value"] is not None:
+            ping_ms = round(lag_obj["value"] / 1000.0, 1)
+
+    created_ts = raw.get("created_ts")
+    ts_sec = round(created_ts / 1000.0) if created_ts else None
+
     tags = raw.get("tags") or {}
     geoip = tags.get("geoip") or {}
     isp = geoip.get("isp_name") or raw.get("isp") or dev.get("isp") or ""
@@ -623,16 +670,21 @@ def extract_orb_metrics(dev):
         "orb_id": dev.get("orb_id", ""),
         "name": dev.get("name", ""),
         "is_connected": bool(dev.get("is_connected", 0) == 1),
+        "timespan": timespan,
         "score": score,
         "responsiveness": resp,
         "reliability": reliab,
         "speed": speed,
+        "download_mbps": dl_mbps,
+        "upload_mbps": ul_mbps,
+        "ping_ms": ping_ms,
+        "timestamp": ts_sec,
         "isp": isp,
         "location": location,
         "raw_summary": raw
     }
 
-def fetch_orb_data(orb_token, force=False):
+def fetch_orb_data(orb_token, force=False, timespan="24h"):
     if not orb_token:
         return {}
 
@@ -643,7 +695,14 @@ def fetch_orb_data(orb_token, force=False):
             mtime = os.path.getmtime(ORB_CACHE_FILE)
             if now - mtime < 60:
                 with open(ORB_CACHE_FILE, "r") as f:
-                    return json.load(f)
+                    cached = json.load(f)
+                first_item = next(iter(cached.values()), None)
+                if first_item and first_item.get("timespan") != timespan and first_item.get("raw_summary"):
+                    updated = {}
+                    for k, v in cached.items():
+                        updated[k] = extract_orb_metrics(v, timespan=timespan)
+                    return updated
+                return cached
         except Exception:
             pass
 
@@ -674,12 +733,13 @@ def fetch_orb_data(orb_token, force=False):
 
         device_map = {}
         for dev in devices:
-            orb_info = extract_orb_metrics(dev)
+            orb_info = extract_orb_metrics(dev, timespan=timespan)
             orb_id = dev.get("orb_id") or dev.get("id") or ""
             name = dev.get("name") or ""
             if orb_id:
                 device_map[orb_id] = orb_info
             if name:
+                device_map[name] = orb_info
                 device_map[name.lower()] = orb_info
                 base_name = name.split("(")[0].strip().lower()
                 device_map[base_name] = orb_info
@@ -719,6 +779,74 @@ def fetch_orb_devices_list(orb_token, force=True):
             })
     res.sort(key=lambda x: x["name"].lower())
     return res
+
+def trigger_orb_speedtest(token, target_sensor):
+    if not token or not target_sensor:
+        return {"status": "error", "message": "Token oder Sensor fehlt"}
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "User-Agent": "snmpbar/1.0",
+        "Accept": "application/json"
+    }
+
+    orb_id = target_sensor
+    if not (len(target_sensor) == 28 and target_sensor.isalnum()):
+        data = fetch_orb_data(token, force=False)
+        matched = data.get(target_sensor) or data.get(target_sensor.lower()) or data.get(target_sensor.split("(")[0].strip().lower())
+        if matched and matched.get("orb_id"):
+            orb_id = matched["orb_id"]
+        else:
+            data = fetch_orb_data(token, force=True)
+            matched = data.get(target_sensor) or data.get(target_sensor.lower()) or data.get(target_sensor.split("(")[0].strip().lower())
+            if matched and matched.get("orb_id"):
+                orb_id = matched["orb_id"]
+
+    if not orb_id:
+        return {"status": "error", "message": f"ORB-Sensor '{target_sensor}' nicht gefunden"}
+
+    url = f"https://panel.orb.net/api/v2/device/{orb_id}/trigger-speedtest/top"
+    try:
+        req = urllib.request.Request(url, method="POST", headers=headers)
+        with urllib.request.urlopen(req, timeout=8.0) as resp:
+            if resp.status not in (200, 201, 202):
+                return {"status": "error", "message": f"HTTP {resp.status} beim Starten"}
+    except Exception as e:
+        return {"status": "error", "message": f"Fehler beim Starten: {e}"}
+
+    time.sleep(5)
+    for _ in range(5):
+        time.sleep(3)
+        try:
+            fresh_data = fetch_orb_data(token, force=True)
+            for k, v in fresh_data.items():
+                if v.get("orb_id") == orb_id and v.get("download_mbps") is not None:
+                    return {
+                        "status": "ok",
+                        "orb_id": orb_id,
+                        "name": v.get("name"),
+                        "download_mbps": v.get("download_mbps"),
+                        "upload_mbps": v.get("upload_mbps"),
+                        "ping_ms": v.get("ping_ms"),
+                        "timestamp": v.get("timestamp") or round(time.time())
+                    }
+        except Exception:
+            pass
+
+    fresh_data = fetch_orb_data(token, force=True)
+    for k, v in fresh_data.items():
+        if v.get("orb_id") == orb_id:
+            return {
+                "status": "ok",
+                "orb_id": orb_id,
+                "name": v.get("name"),
+                "download_mbps": v.get("download_mbps"),
+                "upload_mbps": v.get("upload_mbps"),
+                "ping_ms": v.get("ping_ms"),
+                "timestamp": v.get("timestamp") or round(time.time())
+            }
+
+    return {"status": "ok", "orb_id": orb_id}
 
 def fetch_lancom_peer_details(host, community, version=1):
     peers = {}
@@ -924,7 +1052,7 @@ def discover_interfaces(host, community, version_str="v2c"):
 
 # --- Multi-Connection Polling Logic ---
 
-def poll_connections(connections, enable_reputation=True, apivoid_key="", orb_token=""):
+def poll_connections(connections, enable_reputation=True, apivoid_key="", orb_token="", orb_timespan="24h"):
     now = time.time()
     
     prev_state = {}
@@ -943,7 +1071,7 @@ def poll_connections(connections, enable_reputation=True, apivoid_key="", orb_to
     orb_devices = {}
     if orb_token and has_orb_targets:
         try:
-            orb_devices = fetch_orb_data(orb_token)
+            orb_devices = fetch_orb_data(orb_token, timespan=orb_timespan)
         except Exception:
             orb_devices = {}
 
@@ -1365,14 +1493,20 @@ if __name__ == "__main__":
         token = sys.argv[2] if len(sys.argv) > 2 else ""
         devs = fetch_orb_devices_list(token)
         print(json.dumps(devs, indent=2))
+    elif len(sys.argv) > 1 and sys.argv[1] == "--trigger-orb-speedtest":
+        token = sys.argv[2] if len(sys.argv) > 2 else ""
+        sensor = sys.argv[3] if len(sys.argv) > 3 else ""
+        result = trigger_orb_speedtest(token, sensor)
+        print(json.dumps(result, indent=2))
     elif len(sys.argv) > 1 and sys.argv[1] == "--connections":
         conn_json_str = sys.argv[2] if len(sys.argv) > 2 else "[]"
         enable_rep_str = sys.argv[3] if len(sys.argv) > 3 else "true"
         apivoid_key = sys.argv[4] if len(sys.argv) > 4 else ""
         orb_token = sys.argv[5] if len(sys.argv) > 5 else ""
+        orb_timespan = sys.argv[6] if len(sys.argv) > 6 else "24h"
         enable_rep = (enable_rep_str.lower() != "false")
         conns = json.loads(conn_json_str)
-        result = poll_connections(conns, enable_reputation=enable_rep, apivoid_key=apivoid_key, orb_token=orb_token)
+        result = poll_connections(conns, enable_reputation=enable_rep, apivoid_key=apivoid_key, orb_token=orb_token, orb_timespan=orb_timespan)
         print(json.dumps(result, indent=2))
     else:
         # Fallback auf Einzel-Polling
