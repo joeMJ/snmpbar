@@ -1377,34 +1377,13 @@ export default class SnmpBarExtension extends Extension {
             });
             titleRow.add_child(hostIcon);
             titleRow.add_child(headerLabel);
-
-            if (conn.orb && conn.orb.score != null) {
-                const orbScore = conn.orb.score;
-                let orbBadgeBg = isDarkMode ? 'rgba(51, 209, 122, 0.2)' : 'rgba(38, 162, 105, 0.15)';
-                let orbBadgeColor = isDarkMode ? '#33d17a' : '#26a269';
-                if (typeof orbScore === 'number') {
-                    if (orbScore < 70) {
-                        orbBadgeBg = isDarkMode ? 'rgba(246, 97, 81, 0.2)' : 'rgba(192, 28, 40, 0.15)';
-                        orbBadgeColor = isDarkMode ? '#f66151' : '#c01c28';
-                    } else if (orbScore < 85) {
-                        orbBadgeBg = isDarkMode ? 'rgba(248, 228, 92, 0.2)' : 'rgba(198, 120, 0, 0.15)';
-                        orbBadgeColor = isDarkMode ? '#f8e45c' : '#b36b00';
-                    }
-                }
-                const orbBadge = new St.Label({
-                    text: ` ${orbScore} `,
-                    style: `background-color: ${orbBadgeBg}; color: ${orbBadgeColor}; font-weight: bold; font-size: 10px; border-radius: 4px; padding: 1px 5px; margin-left: 8px;`,
-                });
-                titleRow.add_child(orbBadge);
-            }
-
             cardBox.add_child(titleRow);
 
             if (showUptime && conn.uptime_formatted) {
                 const uptimeRow = new St.BoxLayout({
                     vertical: false,
                     y_align: Clutter.ActorAlign.CENTER,
-                    style: 'margin-left: 24px; margin-top: 2px; margin-bottom: 6px;',
+                    style: 'margin-left: 24px; margin-top: 2px; margin-bottom: 4px;',
                 });
                 const uptimeIcon = new St.Icon({
                     icon_name: 'preferences-system-time-symbolic',
@@ -1428,7 +1407,7 @@ export default class SnmpBarExtension extends Extension {
                 const stRow = new St.BoxLayout({
                     vertical: false,
                     y_align: Clutter.ActorAlign.CENTER,
-                    style: 'margin-left: 24px; margin-top: 1px; margin-bottom: 6px;',
+                    style: 'margin-left: 24px; margin-top: 1px; margin-bottom: 4px;',
                 });
                 const stIcon = new St.Icon({
                     icon_name: 'speedometer-symbolic',
@@ -1448,6 +1427,91 @@ export default class SnmpBarExtension extends Extension {
                 stRow.add_child(stIcon);
                 stRow.add_child(stLabel);
                 cardBox.add_child(stRow);
+            }
+
+            // ORB-Telemetriezeile im Gateway-Kopf (unter Uptime bzw. Speedtest)
+            if (conn.orb && conn.orb.score != null) {
+                const orb = conn.orb;
+                const orbRow = new St.BoxLayout({
+                    vertical: false,
+                    y_align: Clutter.ActorAlign.CENTER,
+                    style: 'margin-left: 24px; margin-top: 1px; margin-bottom: 6px;',
+                });
+
+                // Gesamt-Score Pill
+                const scoreVal = typeof orb.score === 'number' ? orb.score : parseInt(orb.score, 10);
+                const scoreText = !isNaN(scoreVal) ? String(scoreVal) : '--';
+                let scoreBg = isDarkMode ? 'rgba(51, 209, 122, 0.2)' : 'rgba(38, 162, 105, 0.15)';
+                let scoreColor = isDarkMode ? '#33d17a' : '#26a269';
+                if (!isNaN(scoreVal)) {
+                    if (scoreVal < 70) {
+                        scoreBg = isDarkMode ? 'rgba(246, 97, 81, 0.2)' : 'rgba(192, 28, 40, 0.15)';
+                        scoreColor = isDarkMode ? '#f66151' : '#c01c28';
+                    } else if (scoreVal < 85) {
+                        scoreBg = isDarkMode ? 'rgba(248, 228, 92, 0.2)' : 'rgba(198, 120, 0, 0.15)';
+                        scoreColor = isDarkMode ? '#f8e45c' : '#b36b00';
+                    }
+                }
+                const scoreBadge = new St.Label({
+                    text: ` ${scoreText} `,
+                    style: `background-color: ${scoreBg}; color: ${scoreColor}; font-weight: bold; font-size: 10px; border-radius: 4px; padding: 1px 5px; margin-right: 8px;`,
+                });
+                orbRow.add_child(scoreBadge);
+
+                // 1. Thunderbolt (Responsiveness)
+                const respIcon = new St.Icon({
+                    icon_name: 'thunderbolt-symbolic',
+                    icon_size: 11,
+                    style: `margin-right: 3px; color: ${textColor}; opacity: 0.8;`,
+                });
+                const respLbl = new St.Label({
+                    text: `${orb.responsiveness != null ? orb.responsiveness : '--'} Responsiveness`,
+                    style: `color: ${textColor}; font-size: 11px; opacity: 0.85; margin-right: 8px;`,
+                });
+                orbRow.add_child(respIcon);
+                orbRow.add_child(respLbl);
+
+                // Separator
+                const sep1 = new St.Label({
+                    text: '· ',
+                    style: `color: ${textColor}; font-size: 11px; opacity: 0.5; margin-right: 6px;`,
+                });
+                orbRow.add_child(sep1);
+
+                // 2. Security-High (Zuverlässigkeit)
+                const relIcon = new St.Icon({
+                    icon_name: 'security-high-symbolic',
+                    icon_size: 11,
+                    style: `margin-right: 3px; color: ${textColor}; opacity: 0.8;`,
+                });
+                const relLbl = new St.Label({
+                    text: `${orb.reliability != null ? orb.reliability : '--'} Zuverlässigkeit`,
+                    style: `color: ${textColor}; font-size: 11px; opacity: 0.85; margin-right: 8px;`,
+                });
+                orbRow.add_child(relIcon);
+                orbRow.add_child(relLbl);
+
+                // Separator
+                const sep2 = new St.Label({
+                    text: '· ',
+                    style: `color: ${textColor}; font-size: 11px; opacity: 0.5; margin-right: 6px;`,
+                });
+                orbRow.add_child(sep2);
+
+                // 3. Speedometer (Speed)
+                const spdIcon = new St.Icon({
+                    icon_name: 'speedometer-symbolic',
+                    icon_size: 11,
+                    style: `margin-right: 3px; color: ${textColor}; opacity: 0.8;`,
+                });
+                const spdLbl = new St.Label({
+                    text: `${orb.speed != null ? orb.speed : '--'} Speed`,
+                    style: `color: ${textColor}; font-size: 11px; opacity: 0.85;`,
+                });
+                orbRow.add_child(spdIcon);
+                orbRow.add_child(spdLbl);
+
+                cardBox.add_child(orbRow);
             }
 
             // 2. Aggregierte Gesamtleistung (nur wenn aktiv oder standardmäßig bei mehr als 1 Interface)

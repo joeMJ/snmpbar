@@ -151,6 +151,72 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
             }
         };
 
+        let cachedOrbDevices = null;
+
+        const loadOrbDevices = () => {
+            if (cachedOrbDevices && cachedOrbDevices.length > 0) {
+                return cachedOrbDevices;
+            }
+            const devFile = '/dev/shm/snmpbar_orb_cache.json';
+            const devSet = new Map();
+            if (GLib.file_test(devFile, GLib.FileTest.EXISTS)) {
+                try {
+                    const [ok, content] = GLib.file_get_contents(devFile);
+                    if (ok) {
+                        const json = JSON.parse(new TextDecoder().decode(content));
+                        for (const k of Object.keys(json)) {
+                            const d = json[k];
+                            if (d && d.name && !devSet.has(d.name)) {
+                                devSet.set(d.name, {
+                                    id: d.orb_id || d.name,
+                                    name: d.name,
+                                    is_connected: d.is_connected !== false,
+                                });
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn(`[snmpbar] Fehler beim Lesen von ${devFile}: ${e}`);
+                }
+            }
+            const arr = Array.from(devSet.values());
+            if (arr.length > 0) cachedOrbDevices = arr;
+            return arr;
+        };
+
+        const refreshOrbDevices = (onDone) => {
+            const token = settings.get_string('orb-api-token') || '';
+            if (!token) {
+                if (onDone) onDone([]);
+                return;
+            }
+            try {
+                const proc = Gio.Subprocess.new(
+                    ['/usr/bin/python3', backendScript, '--list-orbs', token],
+                    Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                );
+                proc.communicate_utf8_async(null, null, (source, res) => {
+                    try {
+                        const [, stdout] = source.communicate_utf8_finish(res);
+                        if (stdout) {
+                            const list = JSON.parse(stdout);
+                            if (Array.isArray(list) && list.length > 0) {
+                                cachedOrbDevices = list;
+                            }
+                            if (onDone) onDone(list);
+                            return;
+                        }
+                    } catch (e) {
+                        console.warn(`[snmpbar] Fehler bei --list-orbs: ${e}`);
+                    }
+                    if (onDone) onDone([]);
+                });
+            } catch (err) {
+                console.warn(`[snmpbar] Fehler beim Start von --list-orbs: ${err}`);
+                if (onDone) onDone([]);
+            }
+        };
+
         // ==========================================
         // SEITE 1: Design & Anzeige
         // ==========================================
@@ -695,16 +761,49 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                 });
                 connExpander.add_row(showAggRow);
 
-                // 2c. Zugeordneter ORB-Sensor (Standort / Aggregiert)
-                const orbRow = new Adw.EntryRow({
-                    title: _('Zugeordneter ORB-Sensor (Standort / Aggregiert)'),
-                    text: conn.orb_name || '',
+                // 2c. Zugeordneter ORB-Sensor (Dropdown-Auswahl)
+                const knownOrbs = loadOrbDevices();
+                const orbLabels = [_('— Kein ORB-Sensor —')];
+                const orbValues = [''];
+
+                for (const o of knownOrbs) {
+                    const statusDot = o.is_connected ? '●' : '○';
+                    orbLabels.push(`${o.name}  ${statusDot}`);
+                    orbValues.push(o.name);
+                }
+
+                let curOrbIdx = orbValues.indexOf(conn.orb_name || '');
+                if (curOrbIdx < 0 && conn.orb_name) {
+                    const base = conn.orb_name.split('(')[0].trim().toLowerCase();
+                    for (let i = 1; i < orbValues.length; i++) {
+                        const valBase = orbValues[i].split('(')[0].trim().toLowerCase();
+                        if (valBase === base) {
+                            curOrbIdx = i;
+                            break;
+                        }
+                    }
+                }
+
+                if (curOrbIdx < 0 && conn.orb_name) {
+                    orbLabels.push(conn.orb_name);
+                    orbValues.push(conn.orb_name);
+                    curOrbIdx = orbValues.length - 1;
+                } else if (curOrbIdx < 0) {
+                    curOrbIdx = 0;
+                }
+
+                const orbModel = Gtk.StringList.new(orbLabels);
+                const orbComboRow = new Adw.ComboRow({
+                    title: _('Zugeordneter ORB-Sensor'),
+                    subtitle: _('Wähle den an diesem Standort aktiven ORB-Sensor aus'),
+                    model: orbModel,
+                    selected: curOrbIdx,
                 });
-                orbRow.connect('changed', (entry) => {
-                    conn.orb_name = entry.text.trim();
+                orbComboRow.connect('notify::selected', () => {
+                    conn.orb_name = orbValues[orbComboRow.selected] || '';
                     saveConnections(list);
                 });
-                connExpander.add_row(orbRow);
+                connExpander.add_row(orbComboRow);
 
                 // 3. Host IP
                 const hostRow = new Adw.EntryRow({
@@ -1058,7 +1157,7 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         // Gruppe 3: ORB Cloud Integration
         const orbGroup = new Adw.PreferencesGroup({
             title: _('ORB Cloud Integration (orb.net)'),
-            description: _('Zentrale Abfrage von Responsiveness (Blitz), Zuverlässigkeit (Schild) und Speed (Tacho)'),
+            description: _('Automatische Abfrage von Netzwerk-Experience, Latenz und Stabilität über die zentrale ORB Cloud'),
         });
         toolsPage.add(orbGroup);
 
@@ -1071,10 +1170,55 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         });
         orbGroup.add(orbTokenRow);
 
+        const fetchOrbsRow = new Adw.ActionRow({
+            title: _('ORB-Sensoren synchronisieren'),
+            subtitle: _('Ruft alle in der Organisation registrierten Sensoren ab und aktualisiert die Auswahllisten'),
+        });
+        const fetchOrbsBtn = new Gtk.Button({
+            label: _('Sensoren laden'),
+            icon_name: 'view-refresh-symbolic',
+            valign: Gtk.Align.CENTER,
+        });
+        const orbSyncSpinner = new Gtk.Spinner({
+            valign: Gtk.Align.CENTER,
+            visible: false,
+        });
+        fetchOrbsRow.add_suffix(orbSyncSpinner);
+        fetchOrbsRow.add_suffix(fetchOrbsBtn);
+
+        fetchOrbsBtn.connect('clicked', () => {
+            fetchOrbsBtn.sensitive = false;
+            orbSyncSpinner.visible = true;
+            orbSyncSpinner.start();
+            fetchOrbsRow.subtitle = _('Sensoren werden aus der ORB Cloud abgerufen...');
+
+            refreshOrbDevices((devs) => {
+                orbSyncSpinner.stop();
+                orbSyncSpinner.visible = false;
+                fetchOrbsBtn.sensitive = true;
+                if (devs && devs.length > 0) {
+                    fetchOrbsRow.subtitle = _(`${devs.length} Sensor(en) erfolgreich synchronisiert und verfügbar.`);
+                } else {
+                    fetchOrbsRow.subtitle = _('Keine Sensoren gefunden oder API-Token ungültig.');
+                }
+                renderConnections();
+            });
+        });
+        orbGroup.add(fetchOrbsRow);
+
         const orbInfoRow = new Adw.ActionRow({
-            title: _('Sensor-Zuordnung'),
-            subtitle: _('Trage den Sensor-Namen (z. B. kr-home, ne-mbo, tr-crummenauer) im Reiter "Verbindungen" beim jeweiligen Gateway ein.'),
+            title: _('Sensor-Auswahl & Zuordnung'),
+            subtitle: _('Nach dem Laden der Sensoren können diese im Reiter „SNMP & Schnittstellen“ direkt per Auswahlliste dem jeweiligen Gateway zugeordnet werden.'),
         });
         orbGroup.add(orbInfoRow);
+
+        // Automatisches Vorladen der Sensoren im Hintergrund beim Öffnen der Einstellungen
+        if (settings.get_string('orb-api-token')) {
+            refreshOrbDevices((devs) => {
+                if (devs && devs.length > 0) {
+                    renderConnections();
+                }
+            });
+        }
     }
 }

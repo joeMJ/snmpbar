@@ -568,49 +568,56 @@ def run_speedtest():
 # --- ORB Cloud Integration (orb.net) ---
 
 def extract_orb_metrics(dev):
-    summary = dev.get("summary") or {}
+    raw = dev.get("raw_summary") or dev.get("summary") or {}
 
-    def extract_val(keys, obj):
-        if not isinstance(obj, dict):
-            return None
-        for k in keys:
-            if k in obj and obj[k] is not None:
-                val = obj[k]
-                if isinstance(val, (int, float)):
-                    return round(val)
-                elif isinstance(val, dict):
-                    inner = val.get("score") or val.get("value") or val.get("val")
-                    if isinstance(inner, (int, float)):
-                        return round(inner)
-        return None
+    score_source = None
+    if isinstance(raw.get("orb_scores"), list):
+        for s in raw["orb_scores"]:
+            if s.get("duration_ms") == 86400000:
+                score_source = s
+                break
+        if not score_source and raw["orb_scores"]:
+            score_source = raw["orb_scores"][-1]
 
-    containers = [summary]
-    if isinstance(summary.get("scores"), dict):
-        containers.insert(0, summary["scores"])
-    if isinstance(summary.get("metrics"), dict):
-        containers.insert(0, summary["metrics"])
+    if not score_source and isinstance(raw.get("orb_score"), dict):
+        score_source = raw["orb_score"]
 
     score = None
     resp = None
     reliab = None
     speed = None
 
-    for c in containers:
-        if score is None:
-            score = extract_val(["score", "orb_score", "overall_score", "total_score", "overall"], c)
-        if resp is None:
-            resp = extract_val(["responsiveness", "responsiveness_score", "latency_score", "lag_score", "rtt_score", "latency"], c)
-        if reliab is None:
-            reliab = extract_val(["reliability", "reliability_score", "stability_score", "packet_loss_score", "uptime_score", "stability"], c)
-        if speed is None:
-            speed = extract_val(["speed", "speed_score", "bandwidth_score", "throughput_score", "bandwidth"], c)
+    if score_source:
+        score = score_source.get("display")
+        if score is None and isinstance(score_source.get("score"), (int, float)):
+            v = score_source["score"]
+            score = round(v if v > 1 else v * 100)
 
-    isp = summary.get("isp") or dev.get("isp") or ""
-    location = summary.get("location") or dev.get("location") or ""
-    if not isp and isinstance(summary.get("network"), dict):
-        isp = summary["network"].get("isp") or summary["network"].get("asn_org") or ""
-    elif not isp and isinstance(summary.get("network"), str):
-        isp = summary.get("network")
+        comps = score_source.get("components") or {}
+        r_comp = comps.get("responsiveness_score") or {}
+        resp = r_comp.get("display")
+        if resp is None and isinstance(r_comp.get("score"), (int, float)):
+            rv = r_comp["score"]
+            resp = round(rv if rv > 1 else rv * 100)
+
+        rel_comp = comps.get("reliability_score") or {}
+        reliab = rel_comp.get("display")
+        if reliab is None and isinstance(rel_comp.get("score"), (int, float)):
+            relv = rel_comp["score"]
+            reliab = round(relv if relv > 1 else relv * 100)
+
+        b_comp = comps.get("bandwidth_score") or comps.get("speed_score") or {}
+        speed = b_comp.get("display")
+        if speed is None and isinstance(b_comp.get("score"), (int, float)):
+            bv = b_comp["score"]
+            speed = round(bv if bv > 1 else bv * 100)
+
+    tags = raw.get("tags") or {}
+    geoip = tags.get("geoip") or {}
+    isp = geoip.get("isp_name") or raw.get("isp") or dev.get("isp") or ""
+    city = geoip.get("city") or ""
+    country = geoip.get("country_code") or ""
+    location = f"{city}, {country}".strip(", ") if (city or country) else (raw.get("location") or dev.get("location") or "")
 
     return {
         "orb_id": dev.get("orb_id", ""),
@@ -622,16 +629,16 @@ def extract_orb_metrics(dev):
         "speed": speed,
         "isp": isp,
         "location": location,
-        "raw_summary": summary
+        "raw_summary": raw
     }
 
-def fetch_orb_data(orb_token):
+def fetch_orb_data(orb_token, force=False):
     if not orb_token:
         return {}
 
     now = time.time()
     # 1. Cache-Prüfung (60 Sekunden TTL)
-    if os.path.exists(ORB_CACHE_FILE):
+    if not force and os.path.exists(ORB_CACHE_FILE):
         try:
             mtime = os.path.getmtime(ORB_CACHE_FILE)
             if now - mtime < 60:
@@ -693,6 +700,25 @@ def fetch_orb_data(orb_token):
         except Exception:
             pass
         return {}
+
+def fetch_orb_devices_list(orb_token, force=True):
+    if not orb_token:
+        return []
+    data = fetch_orb_data(orb_token, force=force)
+    seen_ids = set()
+    res = []
+    for k, v in data.items():
+        oid = v.get("orb_id")
+        name = v.get("name")
+        if oid and name and oid not in seen_ids:
+            seen_ids.add(oid)
+            res.append({
+                "id": oid,
+                "name": name,
+                "is_connected": bool(v.get("is_connected", False))
+            })
+    res.sort(key=lambda x: x["name"].lower())
+    return res
 
 def fetch_lancom_peer_details(host, community, version=1):
     peers = {}
@@ -1335,6 +1361,10 @@ if __name__ == "__main__":
         ver = sys.argv[4] if len(sys.argv) > 4 else "v2c"
         result = discover_interfaces(host, comm, ver)
         print(json.dumps(result, indent=2))
+    elif len(sys.argv) > 1 and sys.argv[1] == "--list-orbs":
+        token = sys.argv[2] if len(sys.argv) > 2 else ""
+        devs = fetch_orb_devices_list(token)
+        print(json.dumps(devs, indent=2))
     elif len(sys.argv) > 1 and sys.argv[1] == "--connections":
         conn_json_str = sys.argv[2] if len(sys.argv) > 2 else "[]"
         enable_rep_str = sys.argv[3] if len(sys.argv) > 3 else "true"
