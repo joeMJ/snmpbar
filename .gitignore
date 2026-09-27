@@ -1,5 +1,6 @@
 # Lokale Konfigurationen und Passwörter / Secrets
 config.json
+connections.json
 config.yaml
 config.yml
 *.local.json
