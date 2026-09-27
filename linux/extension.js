@@ -433,7 +433,10 @@ export default class SnmpBarExtension extends Extension {
         if (this._isSpeedtesting) return;
         this._isSpeedtesting = true;
         if (this._speedtestMenuItem) {
-            this._speedtestMenuItem.label.set_text('⏳ Speedtest läuft... (~15-20s)');
+            this._speedtestMenuItem.label.set_text('Speedtest läuft... (~15-20s)');
+            if (typeof this._speedtestMenuItem.setIcon === 'function') {
+                this._speedtestMenuItem.setIcon('emblem-synchronizing-symbolic');
+            }
             this._speedtestMenuItem.set_reactive(false);
         }
 
@@ -1449,11 +1452,14 @@ export default class SnmpBarExtension extends Extension {
 
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // 4. Aktionen
+        // 4. Aktionen (mit konsistenten minimalistischen Symbol-Icons)
         const speedtestLabel = this._isSpeedtesting
-            ? '⏳ Speedtest läuft... (~15-20s)'
-            : '🚀 Speedtest durchführen (Ookla)';
-        this._speedtestMenuItem = new PopupMenu.PopupMenuItem(speedtestLabel);
+            ? 'Speedtest läuft... (~15-20s)'
+            : 'Speedtest durchführen (Ookla)';
+        const speedtestIcon = this._isSpeedtesting
+            ? 'emblem-synchronizing-symbolic'
+            : 'speedometer-symbolic';
+        this._speedtestMenuItem = new PopupMenu.PopupImageMenuItem(speedtestLabel, speedtestIcon);
         if (this._isSpeedtesting) {
             this._speedtestMenuItem.set_reactive(false);
         } else {
@@ -1461,11 +1467,11 @@ export default class SnmpBarExtension extends Extension {
         }
         menu.addMenuItem(this._speedtestMenuItem);
 
-        const refreshItem = new PopupMenu.PopupMenuItem('Jetzt aktualisieren');
+        const refreshItem = new PopupMenu.PopupImageMenuItem('Jetzt aktualisieren', 'view-refresh-symbolic');
         refreshItem.connect('activate', () => this._pollNow());
         menu.addMenuItem(refreshItem);
 
-        const prefsItem = new PopupMenu.PopupMenuItem('Einstellungen...');
+        const prefsItem = new PopupMenu.PopupImageMenuItem('Einstellungen...', 'preferences-system-symbolic');
         prefsItem.connect('activate', () => this.openPreferences());
         menu.addMenuItem(prefsItem);
     }
