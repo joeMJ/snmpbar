@@ -209,18 +209,17 @@ class ScaledDetailGraph extends St.DrawingArea {
         const cr = this.get_context();
         const [w, h] = this.get_surface_size();
 
-        // 1. Hintergrund-Box
-        const bgR = this._isDark ? 0.08 : 0.94;
-        const bgG = this._isDark ? 0.08 : 0.94;
-        const bgB = this._isDark ? 0.08 : 0.94;
-        const bgA = this._isDark ? 0.40 : 0.50;
-        cr.setSourceRGBA(bgR, bgG, bgB, bgA);
+        // 1. Hintergrund-Box (100% deckend / solide)
+        const bgR = this._isDark ? 0.11 : 0.96;
+        const bgG = this._isDark ? 0.11 : 0.96;
+        const bgB = this._isDark ? 0.11 : 0.97;
+        cr.setSourceRGBA(bgR, bgG, bgB, 1.0);
         cr.rectangle(0, 0, w, h);
         cr.fill();
 
         // Subtiler Rahmen
         cr.setLineWidth(1.0);
-        cr.setSourceRGBA(this._isDark ? 1.0 : 0.0, this._isDark ? 1.0 : 0.0, this._isDark ? 1.0 : 0.0, this._isDark ? 0.10 : 0.12);
+        cr.setSourceRGBA(this._isDark ? 1.0 : 0.0, this._isDark ? 1.0 : 0.0, this._isDark ? 1.0 : 0.0, this._isDark ? 0.14 : 0.08);
         cr.rectangle(0.5, 0.5, w - 1.0, h - 1.0);
         cr.stroke();
 
@@ -234,10 +233,10 @@ class ScaledDetailGraph extends St.DrawingArea {
         const maxHist = this._history.length > 0 ? Math.max(...this._history) : 0;
         const scaleMax = getNiceScaleMax(maxHist);
 
-        const gridAlpha = this._isDark ? 0.12 : 0.16;
-        const textR = this._isDark ? 0.85 : 0.25;
-        const textG = this._isDark ? 0.85 : 0.25;
-        const textB = this._isDark ? 0.85 : 0.25;
+        const gridAlpha = this._isDark ? 0.15 : 0.12;
+        const textR = this._isDark ? 0.85 : 0.20;
+        const textG = this._isDark ? 0.85 : 0.20;
+        const textB = this._isDark ? 0.85 : 0.20;
 
         // Horizontale Grid-Linien (0%, 50%, 100%)
         cr.selectFontFace('Cantarell', Cairo.FontSlant.NORMAL, Cairo.FontWeight.NORMAL);
@@ -731,6 +730,9 @@ export default class SnmpBarExtension extends Extension {
             }
 
             try {
+                if (!targetActor || !targetActor.get_stage || !targetActor.get_stage()) {
+                    return GLib.SOURCE_REMOVE;
+                }
                 const [menuX, menuY] = this._indicator.menu.actor.get_transformed_position();
                 const [menuW, menuH] = this._indicator.menu.actor.get_transformed_size();
                 const [targetX, targetY] = targetActor.get_transformed_position();
@@ -769,14 +771,15 @@ export default class SnmpBarExtension extends Extension {
     }
 
     _populateSidecar(sidecar, conn, iface, hist, isDarkMode, unitMode, unitFmt, graphDownColor, graphUpColor) {
-        const sidecarBg = isDarkMode ? '#1e1e22fa' : '#fbfbfbfa';
-        const sidecarBorder = isDarkMode ? '#ffffff22' : '#0000001f';
+        const sidecarBg = isDarkMode ? '#242424' : '#ffffff';
+        const sidecarBorder = isDarkMode ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.14)';
         const cardTextColor = isDarkMode ? '#f6f6f6' : '#1a1a1a';
         const sectionColor = isDarkMode ? '#ffffff' : '#111111';
-        const mutedColor = isDarkMode ? '#a0a0a0' : '#666666';
-        const badgeBg = isDarkMode ? '#ffffff10' : '#0000000a';
+        const mutedColor = isDarkMode ? '#9a9a9a' : '#555555';
+        const badgeBg = isDarkMode ? '#1c1c1f' : '#f4f4f6';
+        const detailBorder = isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)';
 
-        sidecar.style = `border: 1px solid ${sidecarBorder}; background-color: ${sidecarBg}; border-radius: 10px; padding: 12px 14px; min-width: 440px; max-width: 480px; box-shadow: 0 6px 20px rgba(0,0,0,0.4);`;
+        sidecar.style = `background-color: ${sidecarBg}; border: 1px solid ${sidecarBorder}; border-radius: 12px; padding: 14px 16px; min-width: 460px; max-width: 500px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);`;
 
         // 1. Header
         const headerRow = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER });
@@ -823,7 +826,7 @@ export default class SnmpBarExtension extends Extension {
         if (hasDetails) {
             const detailBox = new St.BoxLayout({
                 vertical: true,
-                style: `background-color: ${badgeBg}; border: 1px solid ${sidecarBorder}; border-radius: 6px; padding: 6px 10px; margin-top: 8px; margin-bottom: 8px;`,
+                style: `background-color: ${badgeBg}; border: 1px solid ${detailBorder}; border-radius: 8px; padding: 8px 12px; margin-top: 8px; margin-bottom: 8px;`,
             });
 
             // Externe WAN-IP & CGNAT / Public Badge
@@ -841,10 +844,11 @@ export default class SnmpBarExtension extends Extension {
                 ipRow.add_child(ipVal);
 
                 const cgnatText = iface.is_cgnat ? '[CGNAT]' : '[Public IPv4]';
-                const cgnatColor = iface.is_cgnat ? (isDarkMode ? '#f8e45c' : '#c67800') : (isDarkMode ? '#62a0ea' : '#1c71d8');
+                const cgnatColor = iface.is_cgnat ? (isDarkMode ? '#f8e45c' : '#b36b00') : (isDarkMode ? '#62a0ea' : '#1c71d8');
+                const cgnatBg = iface.is_cgnat ? (isDarkMode ? 'rgba(248, 228, 92, 0.15)' : 'rgba(198, 120, 0, 0.10)') : (isDarkMode ? 'rgba(98, 160, 234, 0.15)' : 'rgba(28, 113, 216, 0.10)');
                 const cgnatBadge = new St.Label({
-                    text: `  ${cgnatText}`,
-                    style: `color: ${cgnatColor}; font-weight: bold; font-size: 10px; margin-left: 4px;`,
+                    text: ` ${cgnatText} `,
+                    style: `color: ${cgnatColor}; background-color: ${cgnatBg}; border-radius: 4px; font-weight: bold; font-size: 10px; margin-left: 6px; padding: 1px 4px;`,
                 });
                 ipRow.add_child(cgnatBadge);
                 detailBox.add_child(ipRow);
