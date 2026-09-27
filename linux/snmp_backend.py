@@ -415,7 +415,7 @@ def check_ip_reputation(ip, apivoid_key=""):
         try:
             rev = ".".join(reversed(ip.split(".")))
             res = socket.gethostbyname(f"{rev}.dnsbl.dronebl.org")
-            if res:
+            if res and res != "127.0.0.1" and not res.startswith("127.255.255."):
                 threats.append("DroneBL (Botnet-Drone)")
             engines_checked.append("DroneBL")
         except socket.gaierror:
@@ -423,10 +423,12 @@ def check_ip_reputation(ip, apivoid_key=""):
         except Exception:
             pass
 
-        # D. Spamhaus ZEN (Exploits, Botnets, XBL)
+        # D. Spamhaus (Exploits, Botnets, XBL / SBL)
+        # sbl-xbl.spamhaus.org enthält SBL und XBL (Trojaner, Botnets, Exploits),
+        # schließt jedoch die PBL (127.0.0.10/11 - normale dynamische ISP-Endkunden-IPs) bewusst aus.
         try:
             rev = ".".join(reversed(ip.split(".")))
-            res = socket.gethostbyname(f"{rev}.zen.spamhaus.org")
+            res = socket.gethostbyname(f"{rev}.sbl-xbl.spamhaus.org")
             if res:
                 if res in ("127.0.0.4", "127.0.0.5", "127.0.0.6", "127.0.0.7"):
                     threats.append("Spamhaus XBL (Botnet/Trojan C2)")
@@ -434,8 +436,8 @@ def check_ip_reputation(ip, apivoid_key=""):
                     threats.append("Spamhaus SBL (Spamquelle)")
                 elif res == "127.0.0.3":
                     threats.append("Spamhaus CSS (Schneeschuh-Spam)")
-                else:
-                    threats.append(f"Spamhaus ZEN ({res})")
+                elif not res.startswith("127.255.255.") and res not in ("127.0.0.10", "127.0.0.11", "127.0.0.1"):
+                    threats.append(f"Spamhaus ({res})")
             engines_checked.append("Spamhaus")
         except socket.gaierror:
             engines_checked.append("Spamhaus")
@@ -446,7 +448,7 @@ def check_ip_reputation(ip, apivoid_key=""):
         try:
             rev = ".".join(reversed(ip.split(".")))
             res = socket.gethostbyname(f"{rev}.b.barracudacentral.org")
-            if res:
+            if res and res != "127.0.0.1" and not res.startswith("127.255.255."):
                 threats.append("Barracuda (Malware/Angriffe)")
             engines_checked.append("Barracuda")
         except socket.gaierror:
