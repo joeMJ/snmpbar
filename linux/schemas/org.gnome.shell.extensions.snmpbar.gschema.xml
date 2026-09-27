@@ -259,5 +259,24 @@
       <description>JSON-Array aller SNMP-Verbindungen mit jeweils eigenen Interfaces.</description>
     </key>
 
+    <!-- Speedtest & IP-Reputation / Sicherheit -->
+    <key name="speedtest-result" type="s">
+      <default>''</default>
+      <summary>Letztes Ookla Speedtest Ergebnis</summary>
+      <description>JSON-String des letzten manuellen Speedtests (Download, Upload, Ping, Server, Timestamp).</description>
+    </key>
+
+    <key name="enable-ip-reputation" type="b">
+      <default>true</default>
+      <summary>Bot- und IP-Reputations-Prüfung aktivieren</summary>
+      <description>Prüft öffentliche WAN-IPs gegen Blocklist.de, StopForumSpam, DroneBL, Spamhaus und Barracuda auf Botnetze und Angriffe.</description>
+    </key>
+
+    <key name="apivoid-api-key" type="s">
+      <default>''</default>
+      <summary>Optionaler APIVoid API-Key</summary>
+      <description>Optionaler geheimer Schlüssel für APIVoid. Wenn leer, werden die kostenlosen Bot- und Reputationsdienste verwendet.</description>
+    </key>
+
   </schema>
 </schemalist>

@@ -976,5 +976,71 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         });
 
         renderConnections();
+
+        // ==========================================
+        // SEITE 4: Sicherheit & Speedtest
+        // ==========================================
+        const toolsPage = new Adw.PreferencesPage({
+            title: _('Sicherheit & Speedtest'),
+            icon_name: 'security-high-symbolic',
+        });
+        window.add(toolsPage);
+
+        // Gruppe 1: IP-Reputation & Bot-Erkennung
+        const repGroup = new Adw.PreferencesGroup({
+            title: _('Bot- & IP-Reputationsprüfung'),
+            description: _('Automatische Prüfung externer WAN-IPs gegen Botnet-, Malware- und Brute-Force-Listen'),
+        });
+        toolsPage.add(repGroup);
+
+        const repSwitch = new Adw.SwitchRow({
+            title: _('IP-Reputationsprüfung aktivieren'),
+            subtitle: _('Prüft externe IPs im 4h-Cache über Blocklist.de, StopForumSpam, DroneBL, Spamhaus und Barracuda'),
+            active: settings.get_boolean('enable-ip-reputation'),
+        });
+        repSwitch.connect('notify::active', () => {
+            settings.set_boolean('enable-ip-reputation', repSwitch.active);
+        });
+        repGroup.add(repSwitch);
+
+        const apiKeyRow = new Adw.EntryRow({
+            title: _('APIVoid API-Schlüssel (Optional)'),
+            text: settings.get_string('apivoid-api-key') || '',
+            show_apply_button: true,
+        });
+        apiKeyRow.connect('apply', () => {
+            settings.set_string('apivoid-api-key', apiKeyRow.text.trim());
+        });
+        repGroup.add(apiKeyRow);
+
+        // Gruppe 2: Ookla Speedtest
+        const speedtestGroup = new Adw.PreferencesGroup({
+            title: _('Speedtest (Ookla CLI)'),
+            description: _('Manueller Bandbreitentest für das primäre Gateway direkt im Dropdown-Menü'),
+        });
+        toolsPage.add(speedtestGroup);
+
+        const ooklaInstalled = GLib.find_program_in_path('speedtest') !== null ||
+            GLib.file_test(GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', 'speedtest']), GLib.FileTest.IS_EXECUTABLE);
+
+        const stStatusRow = new Adw.ActionRow({
+            title: _('Ookla Speedtest CLI Status'),
+            subtitle: ooklaInstalled
+                ? _('Installiert und einsatzbereit (~/.local/bin/speedtest)')
+                : _('Nicht gefunden. Kann über ./install_speedtest.sh installiert werden.'),
+        });
+        const stBadge = new Gtk.Label({
+            label: ooklaInstalled ? _('Bereit') : _('Fehlt'),
+            css_classes: [ooklaInstalled ? 'success' : 'warning'],
+            valign: Gtk.Align.CENTER,
+        });
+        stStatusRow.add_suffix(stBadge);
+        speedtestGroup.add(stStatusRow);
+
+        const stInfoRow = new Adw.ActionRow({
+            title: _('Manueller Aufruf'),
+            subtitle: _('Der Speedtest wird niemals automatisch ausgeführt, sondern ausschließlich bei manuellem Klick auf "Speedtest durchführen" im Menü.'),
+        });
+        speedtestGroup.add(stInfoRow);
     }
 }

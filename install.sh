@@ -15,6 +15,17 @@ if ! command -v snmpget >/dev/null 2>&1 || ! command -v snmpwalk >/dev/null 2>&1
     echo ""
 fi
 
+# Optionale Ookla Speedtest CLI Prüfung & Installation
+if ! command -v speedtest >/dev/null 2>&1; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    echo "Optional: Das offizielle Ookla Speedtest CLI wurde nicht gefunden."
+    read -r -p "Möchten Sie Ookla Speedtest nach ~/.local/bin installieren? [j/N]: " install_st || install_st="n"
+    if [[ "$install_st" =~ ^[jJyY]$ ]] && [ -f "$SCRIPT_DIR/install_speedtest.sh" ]; then
+        bash "$SCRIPT_DIR/install_speedtest.sh"
+    fi
+    echo ""
+fi
+
 echo "1. Kompiliere GSettings-Schemas..."
 if [ -d "$SRC_DIR/schemas" ]; then
     glib-compile-schemas "$SRC_DIR/schemas"

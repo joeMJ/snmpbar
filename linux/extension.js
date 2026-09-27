@@ -335,6 +335,16 @@ export default class SnmpBarExtension extends Extension {
         this._histories = {};
         this._hoverSidecar = null;
         this._sidecarHideTimeout = null;
+        this._isSpeedtesting = false;
+        this._speedtestResult = null;
+        this._speedtestMenuItem = null;
+
+        const savedSt = this._getStr('speedtest-result', '');
+        if (savedSt) {
+            try {
+                this._speedtestResult = JSON.parse(savedSt);
+            } catch (e) {}
+        }
 
         // Dark-Mode Erkennung über GNOME Interface Settings
         try {
@@ -399,8 +409,70 @@ export default class SnmpBarExtension extends Extension {
             this._indicator = null;
         }
 
+        this._isSpeedtesting = false;
+        this._speedtestResult = null;
+        this._speedtestMenuItem = null;
         this._settings = null;
         console.log(`[snmpbar] Extension ${this.uuid} deaktiviert.`);
+    }
+
+    _formatTimeAgo(timestamp) {
+        if (!timestamp) return '';
+        const now = Date.now() / 1000;
+        const diff = Math.max(0, Math.floor(now - timestamp));
+        if (diff < 60) return 'gerade eben';
+        const mins = Math.floor(diff / 60);
+        if (mins < 60) return `vor ${mins} Min.`;
+        const hours = Math.floor(mins / 60);
+        if (hours < 24) return `vor ${hours} Std.`;
+        const days = Math.floor(hours / 24);
+        return `vor ${days} Tg.`;
+    }
+
+    _runSpeedtest() {
+        if (this._isSpeedtesting) return;
+        this._isSpeedtesting = true;
+        if (this._speedtestMenuItem) {
+            this._speedtestMenuItem.label.set_text('⏳ Speedtest läuft... (~15-20s)');
+            this._speedtestMenuItem.set_reactive(false);
+        }
+
+        try {
+            const proc = Gio.Subprocess.new(
+                ['/usr/bin/python3', this._backendScript, '--speedtest'],
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+            );
+
+            proc.communicate_utf8_async(null, null, (source, res) => {
+                this._isSpeedtesting = false;
+                try {
+                    const [, stdout, stderr] = source.communicate_utf8_finish(res);
+                    if (stdout) {
+                        const result = JSON.parse(stdout);
+                        if (result && result.status === 'ok') {
+                            this._speedtestResult = result;
+                            if (this._settings) {
+                                this._settings.set_string('speedtest-result', JSON.stringify(result));
+                            }
+                        } else if (result && result.message) {
+                            console.warn(`[snmpbar] Speedtest-Warnung: ${result.message}`);
+                        }
+                    }
+                } catch (e) {
+                    console.error(`[snmpbar] Fehler bei Speedtest-Verarbeitung: ${e}`);
+                } finally {
+                    if (this._lastData) {
+                        this._buildMenu(this._lastData);
+                    }
+                }
+            });
+        } catch (err) {
+            this._isSpeedtesting = false;
+            console.error(`[snmpbar] Konnte Speedtest nicht starten: ${err}`);
+            if (this._lastData) {
+                this._buildMenu(this._lastData);
+            }
+        }
     }
 
     _getStr(key, fallback = '') {
@@ -859,6 +931,37 @@ export default class SnmpBarExtension extends Extension {
                 });
                 ipRow.add_child(cgnatBadge);
                 detailBox.add_child(ipRow);
+
+                // IP-Reputation (nur für Public IPv4 bzw. wenn Reputationsdaten vorliegen)
+                if (iface.reputation) {
+                    const repRow = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER, style: 'margin-bottom: 3px;' });
+                    const repLbl = new St.Label({
+                        text: 'Reputation:  ',
+                        style: `color: ${mutedColor}; font-weight: 600; font-size: 11px;`,
+                    });
+                    repRow.add_child(repLbl);
+
+                    if (iface.reputation.is_clean) {
+                        const engineCount = (iface.reputation.engines_checked && iface.reputation.engines_checked.length > 0)
+                            ? iface.reputation.engines_checked.length
+                            : 5;
+                        const repVal = new St.Label({
+                            text: `✓ Sauber (${engineCount} Bot-/Abuse-Filter)`,
+                            style: `color: ${isDarkMode ? '#33d17a' : '#26a269'}; font-weight: bold; font-size: 11px;`,
+                        });
+                        repRow.add_child(repVal);
+                    } else {
+                        const threatText = (iface.reputation.threats && iface.reputation.threats.length > 0)
+                            ? iface.reputation.threats.join(', ')
+                            : 'Gelistet';
+                        const repVal = new St.Label({
+                            text: `⚠️ Gelistet: ${threatText}`,
+                            style: `color: ${isDarkMode ? '#f66151' : '#c01c28'}; font-weight: bold; font-size: 11px;`,
+                        });
+                        repRow.add_child(repVal);
+                    }
+                    detailBox.add_child(repRow);
+                }
             } else if (!iface.is_up && iface.ip_type !== 'Lokal') {
                 const ipRow = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER, style: 'margin-bottom: 3px;' });
                 const ipLbl = new St.Label({
@@ -1150,6 +1253,31 @@ export default class SnmpBarExtension extends Extension {
                 titleRow.style = (titleRow.style || '') + ' margin-bottom: 6px;';
             }
 
+            // Speedtest-Telemetrie (Heimat-Gateway)
+            if (cIdx === 0 && this._speedtestResult && this._speedtestResult.status === 'ok') {
+                const st = this._speedtestResult;
+                const stRow = new St.BoxLayout({
+                    vertical: false,
+                    y_align: Clutter.ActorAlign.CENTER,
+                    style: 'margin-left: 24px; margin-top: 1px; margin-bottom: 6px;',
+                });
+                const stIcon = new St.Icon({
+                    icon_name: 'speedometer-symbolic',
+                    icon_size: 12,
+                    style: `margin-right: 5px; color: ${textColor}; opacity: 0.7;`,
+                });
+                const timeAgo = this._formatTimeAgo(st.timestamp);
+                const pingText = st.ping_ms ? ` · ${st.ping_ms} ms` : '';
+                const timeText = timeAgo ? ` · ${timeAgo}` : '';
+                const stLabel = new St.Label({
+                    text: `Speedtest: ↓ ${st.download_mbps} Mbit · ↑ ${st.upload_mbps} Mbit (${st.cli_type || 'Ookla'}${pingText}${timeText})`,
+                    style: `color: ${textColor}; font-size: 11px; opacity: 0.85; font-weight: 500;`,
+                });
+                stRow.add_child(stIcon);
+                stRow.add_child(stLabel);
+                cardBox.add_child(stRow);
+            }
+
             // 2. Aggregierte Gesamtleistung (nur wenn aktiv oder standardmäßig bei mehr als 1 Interface)
             const ifaces = conn.interfaces || [];
             const showAggregated = typeof conn.show_aggregated === 'boolean'
@@ -1258,6 +1386,15 @@ export default class SnmpBarExtension extends Extension {
                     topRow.add_child(nameLabel);
                     topRow.add_child(statusLabel);
 
+                    if (iface.has_threat) {
+                        const warnIcon = new St.Icon({
+                            icon_name: 'dialog-warning-symbolic',
+                            icon_size: 13,
+                            style: `color: ${isDarkMode ? '#f66151' : '#c01c28'}; margin-left: 6px;`,
+                        });
+                        topRow.add_child(warnIcon);
+                    }
+
                     if (showIfaceUptime && iface.is_up && iface.uptime_str) {
                         const ifaceUptimeLabel = new St.Label({
                             text: ` (${iface.uptime_str})`,
@@ -1313,6 +1450,17 @@ export default class SnmpBarExtension extends Extension {
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         // 4. Aktionen
+        const speedtestLabel = this._isSpeedtesting
+            ? '⏳ Speedtest läuft... (~15-20s)'
+            : '🚀 Speedtest durchführen (Ookla)';
+        this._speedtestMenuItem = new PopupMenu.PopupMenuItem(speedtestLabel);
+        if (this._isSpeedtesting) {
+            this._speedtestMenuItem.set_reactive(false);
+        } else {
+            this._speedtestMenuItem.connect('activate', () => this._runSpeedtest());
+        }
+        menu.addMenuItem(this._speedtestMenuItem);
+
         const refreshItem = new PopupMenu.PopupMenuItem('Jetzt aktualisieren');
         refreshItem.connect('activate', () => this._pollNow());
         menu.addMenuItem(refreshItem);
@@ -1354,9 +1502,12 @@ export default class SnmpBarExtension extends Extension {
             connsJson = JSON.stringify(single);
         }
 
+        const enableRep = this._getBool('enable-ip-reputation', true) ? 'true' : 'false';
+        const apivoidKey = this._getStr('apivoid-api-key', '');
+
         try {
             const proc = Gio.Subprocess.new(
-                ['/usr/bin/python3', this._backendScript, '--connections', connsJson],
+                ['/usr/bin/python3', this._backendScript, '--connections', connsJson, enableRep, apivoidKey],
                 Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
             );
 
@@ -1381,6 +1532,17 @@ export default class SnmpBarExtension extends Extension {
     _updateUi(data) {
         if (!this._indicator) return;
         this._applyLayoutClasses();
+
+        if (data && data.last_speedtest) {
+            this._speedtestResult = data.last_speedtest;
+        } else if (!this._speedtestResult) {
+            const savedSt = this._getStr('speedtest-result', '');
+            if (savedSt) {
+                try {
+                    this._speedtestResult = JSON.parse(savedSt);
+                } catch (e) {}
+            }
+        }
 
         if (!data || data.status !== 'ok') {
             this._downLabel.set_text('↓  Offline');

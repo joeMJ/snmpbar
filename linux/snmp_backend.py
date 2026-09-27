@@ -14,8 +14,13 @@ import time
 import socket
 import struct
 import ipaddress
+import urllib.request
+import subprocess
+import shutil
 
 CACHE_FILE = "/dev/shm/snmpbar_state.json"
+REPUTATION_CACHE_FILE = "/dev/shm/snmpbar_reputation_cache.json"
+SPEEDTEST_CACHE_FILE = "/dev/shm/snmpbar_speedtest.json"
 
 # --- ASN.1 / BER Encoding & Decoding ---
 
@@ -317,6 +322,246 @@ def classify_ip(ip_str):
     except Exception:
         return {"ip": ip_str, "is_cgnat": False, "type": ""}
 
+def check_ip_reputation(ip, apivoid_key=""):
+    """
+    Prüft eine öffentliche IPv4-Adresse auf bekannte Bedrohungen, Botnetze und Missbrauch.
+    Priorität:
+    1. Wenn apivoid_key vorhanden: Abfrage von APIVoid (alle 80 Engines)
+    2. Sonst (kostenlos & ohne Key): Multi-Engine Prüfung via:
+       - Blocklist.de (Fail2ban, SSH/FTP-Angreifer, Brute-Force Bots)
+       - StopForumSpam (Automatisierte Web-, Formular- und Spambots)
+       - DroneBL (Botnet-Drones, kompromittierte IoT-Hosts, IRC/DDoS-Bots)
+       - Spamhaus ZEN / XBL (Exploits, Trojaner, Botnet C2)
+       - Barracuda Reputation (Malware & Angriffe)
+    Ergebnisse werden für 4 Stunden im RAM-Cache (/dev/shm) gepuffert.
+    """
+    if not ip:
+        return {"is_clean": True, "threats": [], "summary": "", "cached": False}
+    try:
+        addr = ipaddress.ip_address(ip)
+        if addr.is_private or addr.is_loopback or addr in ipaddress.ip_network("100.64.0.0/10"):
+            return {"is_clean": True, "threats": [], "summary": "Private / CGNAT IP", "cached": True}
+    except Exception:
+        return {"is_clean": True, "threats": [], "summary": "", "cached": False}
+
+    rep_cache = {}
+    if os.path.exists(REPUTATION_CACHE_FILE):
+        try:
+            with open(REPUTATION_CACHE_FILE, "r") as f:
+                rep_cache = json.load(f)
+        except Exception:
+            rep_cache = {}
+
+    now = time.time()
+    if ip in rep_cache:
+        entry = rep_cache[ip]
+        if now - entry.get("timestamp", 0) < 14400: # 4 Stunden gültig
+            return entry
+
+    threats = []
+    engines_checked = []
+
+    # 1. APIVoid (falls Key konfiguriert)
+    if apivoid_key:
+        try:
+            url = "https://api.apivoid.com/v2/ip-reputation"
+            req = urllib.request.Request(
+                url,
+                data=json.dumps({"ip": ip}).encode("utf-8"),
+                headers={"Content-Type": "application/json", "X-API-Key": apivoid_key, "User-Agent": "snmpbar/1.0"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=4.0) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                bl = data.get("blacklists", {})
+                detections = bl.get("detections", 0)
+                engines_count = bl.get("engines_count", 0)
+                if detections > 0:
+                    threats.append(f"APIVoid ({detections}/{engines_count} Treffer)")
+                engines_checked.append("APIVoid")
+        except Exception:
+            pass
+
+    # 2. Wenn kein APIVoid Key oder APIVoid fehlgeschlagen: Die 5 Bot- & Abuse-Dienste prüfen
+    if not threats:
+        # A. Blocklist.de (Fail2ban, SSH/FTP-Angreifer, Brute-Force Bots)
+        try:
+            url = f"https://api.blocklist.de/api.php?ip={ip}&format=json"
+            req = urllib.request.Request(url, headers={"User-Agent": "snmpbar/1.0"})
+            with urllib.request.urlopen(req, timeout=2.0) as resp:
+                bdata = json.loads(resp.read().decode("utf-8"))
+                attacks = bdata.get("attacks", 0)
+                reports = bdata.get("reports", 0)
+                if attacks > 0 or reports > 0:
+                    threats.append(f"Blocklist.de ({attacks} Angriffe / {reports} Reports)")
+                engines_checked.append("Blocklist.de")
+        except Exception:
+            pass
+
+        # B. StopForumSpam (Automatisierte Web- & Spambots)
+        try:
+            url = f"https://api.stopforumspam.org/api?ip={ip}&json"
+            req = urllib.request.Request(url, headers={"User-Agent": "snmpbar/1.0"})
+            with urllib.request.urlopen(req, timeout=2.0) as resp:
+                sdata = json.loads(resp.read().decode("utf-8"))
+                if sdata.get("ip", {}).get("appears") == 1:
+                    freq = sdata.get("ip", {}).get("frequency", 1)
+                    threats.append(f"StopForumSpam (Bot gemeldet, {freq}x)")
+                engines_checked.append("StopForumSpam")
+        except Exception:
+            pass
+
+        # C. DroneBL (Botnet-Drones, kompromittierte Hosts, IRC/DDoS-Bots)
+        try:
+            rev = ".".join(reversed(ip.split(".")))
+            res = socket.gethostbyname(f"{rev}.dnsbl.dronebl.org")
+            if res:
+                threats.append("DroneBL (Botnet-Drone)")
+            engines_checked.append("DroneBL")
+        except socket.gaierror:
+            engines_checked.append("DroneBL")
+        except Exception:
+            pass
+
+        # D. Spamhaus ZEN (Exploits, Botnets, XBL)
+        try:
+            rev = ".".join(reversed(ip.split(".")))
+            res = socket.gethostbyname(f"{rev}.zen.spamhaus.org")
+            if res:
+                if res in ("127.0.0.4", "127.0.0.5", "127.0.0.6", "127.0.0.7"):
+                    threats.append("Spamhaus XBL (Botnet/Trojan C2)")
+                elif res == "127.0.0.2":
+                    threats.append("Spamhaus SBL (Spamquelle)")
+                elif res == "127.0.0.3":
+                    threats.append("Spamhaus CSS (Schneeschuh-Spam)")
+                else:
+                    threats.append(f"Spamhaus ZEN ({res})")
+            engines_checked.append("Spamhaus")
+        except socket.gaierror:
+            engines_checked.append("Spamhaus")
+        except Exception:
+            pass
+
+        # E. Barracuda (Angriffe & Malware)
+        try:
+            rev = ".".join(reversed(ip.split(".")))
+            res = socket.gethostbyname(f"{rev}.b.barracudacentral.org")
+            if res:
+                threats.append("Barracuda (Malware/Angriffe)")
+            engines_checked.append("Barracuda")
+        except socket.gaierror:
+            engines_checked.append("Barracuda")
+        except Exception:
+            pass
+
+    is_clean = (len(threats) == 0)
+    summary = "Sauber (Keine Bot-/Blacklist-Meldungen)" if is_clean else f"⚠️ {', '.join(threats)}"
+
+    result = {
+        "ip": ip,
+        "is_clean": is_clean,
+        "threats": threats,
+        "engines_checked": engines_checked,
+        "summary": summary,
+        "timestamp": now
+    }
+
+    rep_cache[ip] = result
+    try:
+        with open(REPUTATION_CACHE_FILE, "w") as f:
+            json.dump(rep_cache, f)
+    except Exception:
+        pass
+
+    return result
+
+def run_speedtest():
+    """
+    Führt einen manuellen Speedtest über das Ookla Speedtest CLI oder speedtest-cli aus.
+    Ergebnis wird strukturiert als JSON zurückgegeben und im Cache abgelegt.
+    """
+    local_bin = os.path.expanduser("~/.local/bin/speedtest")
+    speedtest_bin = None
+    is_ookla = False
+
+    if os.path.exists(local_bin) and os.access(local_bin, os.X_OK):
+        speedtest_bin = local_bin
+        is_ookla = True
+    elif shutil.which("speedtest"):
+        speedtest_bin = shutil.which("speedtest")
+        is_ookla = True
+    elif shutil.which("speedtest-cli"):
+        speedtest_bin = shutil.which("speedtest-cli")
+        is_ookla = False
+
+    if not speedtest_bin:
+        return {
+            "status": "error",
+            "message": "Weder 'speedtest' (Ookla) noch 'speedtest-cli' gefunden. Bitte './install_speedtest.sh' im Terminal ausführen."
+        }
+
+    try:
+        if is_ookla:
+            cmd = [speedtest_bin, "--format=json", "--accept-license", "--accept-gdpr"]
+        else:
+            cmd = [speedtest_bin, "--json"]
+
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=90)
+        if proc.returncode != 0:
+            return {"status": "error", "message": f"Speedtest-Fehler (Code {proc.returncode}): {proc.stderr.strip()}"}
+
+        data = json.loads(proc.stdout)
+        now = time.time()
+
+        if is_ookla:
+            ping = float(data.get("ping", {}).get("latency", 0.0))
+            jitter = float(data.get("ping", {}).get("jitter", 0.0))
+            # Ookla liefert Bytes/sec in "bandwidth"
+            dl_bw = float(data.get("download", {}).get("bandwidth", 0.0))
+            ul_bw = float(data.get("upload", {}).get("bandwidth", 0.0))
+            dl_mbps = (dl_bw * 8.0) / 1_000_000.0
+            ul_mbps = (ul_bw * 8.0) / 1_000_000.0
+            isp = data.get("isp", "")
+            server = data.get("server", {}).get("name", "")
+            server_loc = data.get("server", {}).get("location", "")
+            server_str = f"{server} ({server_loc})" if server_loc else server
+            result_url = data.get("result", {}).get("url", "")
+        else:
+            ping = float(data.get("ping", 0.0))
+            jitter = 0.0
+            dl_mbps = float(data.get("download", 0.0)) / 1_000_000.0
+            ul_mbps = float(data.get("upload", 0.0)) / 1_000_000.0
+            isp = data.get("client", {}).get("isp", "")
+            server = data.get("server", {}).get("sponsor", "")
+            server_loc = data.get("server", {}).get("name", "")
+            server_str = f"{server} ({server_loc})" if server_loc else server
+            result_url = data.get("share", "")
+
+        res = {
+            "status": "ok",
+            "timestamp": now,
+            "download_mbps": round(dl_mbps, 1),
+            "upload_mbps": round(ul_mbps, 1),
+            "ping_ms": round(ping, 1),
+            "jitter_ms": round(jitter, 1),
+            "isp": isp,
+            "server": server_str,
+            "result_url": result_url,
+            "cli_type": "Ookla CLI" if is_ookla else "speedtest-cli"
+        }
+
+        try:
+            with open(SPEEDTEST_CACHE_FILE, "w") as f:
+                json.dump(res, f)
+        except Exception:
+            pass
+
+        return res
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "message": "Speedtest-Timeout nach 90 Sekunden."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 def fetch_lancom_peer_details(host, community, version=1):
     peers = {}
     # 1. Active Table: Laufzeiten (1.3.6.1.4.1.2356.11.1.17.1)
@@ -521,7 +766,7 @@ def discover_interfaces(host, community, version_str="v2c"):
 
 # --- Multi-Connection Polling Logic ---
 
-def poll_connections(connections):
+def poll_connections(connections, enable_reputation=True, apivoid_key=""):
     now = time.time()
     
     prev_state = {}
@@ -818,6 +1063,10 @@ def poll_connections(connections):
                     total_rx_bytes_sec += rx_bytes_sec
                     total_tx_bytes_sec += tx_bytes_sec
                     
+                rep_data = None
+                if is_up and ext_ip and not is_cgnat and enable_reputation:
+                    rep_data = check_ip_reputation(ext_ip, apivoid_key)
+
                 iface_results.append({
                     "id": iface.get("id", str(idx)),
                     "name": iface.get("name", f"Interface {idx}"),
@@ -830,6 +1079,9 @@ def poll_connections(connections):
                     "external_ip": ext_ip,
                     "is_cgnat": is_cgnat,
                     "ip_type": ip_type,
+                    "reputation": rep_data,
+                    "has_threat": bool(rep_data and not rep_data.get("is_clean", True)),
+                    "threat_summary": rep_data.get("summary", "") if rep_data else "",
                     "dns_servers": dns_servers,
                     "sync_rx_kbit": sync_rx,
                     "sync_tx_kbit": sync_tx,
@@ -893,12 +1145,22 @@ def poll_connections(connections):
     except Exception:
         pass
         
+    # Letztes Speedtest-Ergebnis einlesen, falls vorhanden
+    last_st = None
+    if os.path.exists(SPEEDTEST_CACHE_FILE):
+        try:
+            with open(SPEEDTEST_CACHE_FILE, "r") as f:
+                last_st = json.load(f)
+        except Exception:
+            pass
+
     # Rückwärtskompatibles Format bereitstellen
     first_conn = conn_results[0] if conn_results else {}
     return {
         "status": "ok" if any(c["is_online"] for c in conn_results) else "offline",
         "timestamp": now,
         "connections": conn_results,
+        "last_speedtest": last_st,
         "host": first_conn.get("host", ""),
         "load_balancer": {
             "name": first_conn.get("aggregated_name", "Load-Balancer Gesamt"),
@@ -908,7 +1170,10 @@ def poll_connections(connections):
     }
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "--walk":
+    if len(sys.argv) > 1 and sys.argv[1] == "--speedtest":
+        result = run_speedtest()
+        print(json.dumps(result, indent=2))
+    elif len(sys.argv) > 1 and sys.argv[1] == "--walk":
         host = sys.argv[2] if len(sys.argv) > 2 else "192.0.2.1"
         comm = sys.argv[3] if len(sys.argv) > 3 else "public"
         ver = sys.argv[4] if len(sys.argv) > 4 else "v2c"
@@ -916,8 +1181,11 @@ if __name__ == "__main__":
         print(json.dumps(result, indent=2))
     elif len(sys.argv) > 1 and sys.argv[1] == "--connections":
         conn_json_str = sys.argv[2] if len(sys.argv) > 2 else "[]"
+        enable_rep_str = sys.argv[3] if len(sys.argv) > 3 else "true"
+        apivoid_key = sys.argv[4] if len(sys.argv) > 4 else ""
+        enable_rep = (enable_rep_str.lower() != "false")
         conns = json.loads(conn_json_str)
-        result = poll_connections(conns)
+        result = poll_connections(conns, enable_reputation=enable_rep, apivoid_key=apivoid_key)
         print(json.dumps(result, indent=2))
     else:
         # Fallback auf Einzel-Polling
