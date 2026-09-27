@@ -21,6 +21,7 @@ import shutil
 CACHE_FILE = "/dev/shm/snmpbar_state.json"
 REPUTATION_CACHE_FILE = "/dev/shm/snmpbar_reputation_cache.json"
 SPEEDTEST_CACHE_FILE = "/dev/shm/snmpbar_speedtest.json"
+ORB_CACHE_FILE = "/dev/shm/snmpbar_orb_cache.json"
 
 # --- ASN.1 / BER Encoding & Decoding ---
 
@@ -564,6 +565,135 @@ def run_speedtest():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+# --- ORB Cloud Integration (orb.net) ---
+
+def extract_orb_metrics(dev):
+    summary = dev.get("summary") or {}
+
+    def extract_val(keys, obj):
+        if not isinstance(obj, dict):
+            return None
+        for k in keys:
+            if k in obj and obj[k] is not None:
+                val = obj[k]
+                if isinstance(val, (int, float)):
+                    return round(val)
+                elif isinstance(val, dict):
+                    inner = val.get("score") or val.get("value") or val.get("val")
+                    if isinstance(inner, (int, float)):
+                        return round(inner)
+        return None
+
+    containers = [summary]
+    if isinstance(summary.get("scores"), dict):
+        containers.insert(0, summary["scores"])
+    if isinstance(summary.get("metrics"), dict):
+        containers.insert(0, summary["metrics"])
+
+    score = None
+    resp = None
+    reliab = None
+    speed = None
+
+    for c in containers:
+        if score is None:
+            score = extract_val(["score", "orb_score", "overall_score", "total_score", "overall"], c)
+        if resp is None:
+            resp = extract_val(["responsiveness", "responsiveness_score", "latency_score", "lag_score", "rtt_score", "latency"], c)
+        if reliab is None:
+            reliab = extract_val(["reliability", "reliability_score", "stability_score", "packet_loss_score", "uptime_score", "stability"], c)
+        if speed is None:
+            speed = extract_val(["speed", "speed_score", "bandwidth_score", "throughput_score", "bandwidth"], c)
+
+    isp = summary.get("isp") or dev.get("isp") or ""
+    location = summary.get("location") or dev.get("location") or ""
+    if not isp and isinstance(summary.get("network"), dict):
+        isp = summary["network"].get("isp") or summary["network"].get("asn_org") or ""
+    elif not isp and isinstance(summary.get("network"), str):
+        isp = summary.get("network")
+
+    return {
+        "orb_id": dev.get("orb_id", ""),
+        "name": dev.get("name", ""),
+        "is_connected": bool(dev.get("is_connected", 0) == 1),
+        "score": score,
+        "responsiveness": resp,
+        "reliability": reliab,
+        "speed": speed,
+        "isp": isp,
+        "location": location,
+        "raw_summary": summary
+    }
+
+def fetch_orb_data(orb_token):
+    if not orb_token:
+        return {}
+
+    now = time.time()
+    # 1. Cache-Prüfung (60 Sekunden TTL)
+    if os.path.exists(ORB_CACHE_FILE):
+        try:
+            mtime = os.path.getmtime(ORB_CACHE_FILE)
+            if now - mtime < 60:
+                with open(ORB_CACHE_FILE, "r") as f:
+                    return json.load(f)
+        except Exception:
+            pass
+
+    headers = {
+        "Authorization": f"Bearer {orb_token}",
+        "User-Agent": "snmpbar/1.0",
+        "Accept": "application/json"
+    }
+
+    try:
+        # Organisation ermitteln
+        req_org = urllib.request.Request("https://panel.orb.net/api/v2/organizations", headers=headers)
+        with urllib.request.urlopen(req_org, timeout=4.0) as resp:
+            orgs = json.loads(resp.read().decode("utf-8"))
+
+        if not orgs or not isinstance(orgs, list):
+            return {}
+
+        org_id = orgs[0].get("organization_id") or orgs[0].get("id")
+        if not org_id:
+            return {}
+
+        # Geräte der Organisation abrufen
+        dev_url = f"https://panel.orb.net/api/v2/organization/{org_id}/devices"
+        req_dev = urllib.request.Request(dev_url, headers=headers)
+        with urllib.request.urlopen(req_dev, timeout=4.0) as resp:
+            devices = json.loads(resp.read().decode("utf-8"))
+
+        device_map = {}
+        for dev in devices:
+            orb_info = extract_orb_metrics(dev)
+            orb_id = dev.get("orb_id") or dev.get("id") or ""
+            name = dev.get("name") or ""
+            if orb_id:
+                device_map[orb_id] = orb_info
+            if name:
+                device_map[name.lower()] = orb_info
+                base_name = name.split("(")[0].strip().lower()
+                device_map[base_name] = orb_info
+
+        try:
+            with open(ORB_CACHE_FILE, "w") as f:
+                json.dump(device_map, f)
+        except Exception:
+            pass
+
+        return device_map
+    except Exception:
+        # Fallback auf Cache, falls Netzwerkfehler
+        try:
+            if os.path.exists(ORB_CACHE_FILE):
+                with open(ORB_CACHE_FILE, "r") as f:
+                    return json.load(f)
+        except Exception:
+            pass
+        return {}
+
 def fetch_lancom_peer_details(host, community, version=1):
     peers = {}
     # 1. Active Table: Laufzeiten (1.3.6.1.4.1.2356.11.1.17.1)
@@ -768,7 +898,7 @@ def discover_interfaces(host, community, version_str="v2c"):
 
 # --- Multi-Connection Polling Logic ---
 
-def poll_connections(connections, enable_reputation=True, apivoid_key=""):
+def poll_connections(connections, enable_reputation=True, apivoid_key="", orb_token=""):
     now = time.time()
     
     prev_state = {}
@@ -783,6 +913,14 @@ def poll_connections(connections, enable_reputation=True, apivoid_key=""):
     dt = now - prev_time if prev_time > 0 else 0
     current_state_cache = {"timestamp": now, "counters": {}}
     
+    has_orb_targets = any(conn.get("orb_name", "").strip() for conn in connections)
+    orb_devices = {}
+    if orb_token and has_orb_targets:
+        try:
+            orb_devices = fetch_orb_data(orb_token)
+        except Exception:
+            orb_devices = {}
+
     conn_results = []
     
     for conn in connections:
@@ -1112,12 +1250,28 @@ def poll_connections(connections, enable_reputation=True, apivoid_key=""):
         if show_agg is None:
             show_agg = (len(ifaces) > 1)
 
+        conn_orb = None
+        orb_name = conn.get("orb_name", "").strip()
+        if orb_name and orb_devices:
+            target_lower = orb_name.lower()
+            if orb_name in orb_devices:
+                conn_orb = orb_devices[orb_name]
+            elif target_lower in orb_devices:
+                conn_orb = orb_devices[target_lower]
+            else:
+                for k, v in orb_devices.items():
+                    if target_lower in k or k in target_lower:
+                        conn_orb = v
+                        break
+
         conn_results.append({
             "id": conn_id,
             "name": conn_name,
             "host": host,
             "aggregated_name": agg_name,
             "show_aggregated": show_agg,
+            "orb_name": orb_name,
+            "orb": conn_orb,
             "is_online": is_online,
             "uptime_ticks": uptime_ticks,
             "uptime_str": uptime_str,
@@ -1185,9 +1339,10 @@ if __name__ == "__main__":
         conn_json_str = sys.argv[2] if len(sys.argv) > 2 else "[]"
         enable_rep_str = sys.argv[3] if len(sys.argv) > 3 else "true"
         apivoid_key = sys.argv[4] if len(sys.argv) > 4 else ""
+        orb_token = sys.argv[5] if len(sys.argv) > 5 else ""
         enable_rep = (enable_rep_str.lower() != "false")
         conns = json.loads(conn_json_str)
-        result = poll_connections(conns, enable_reputation=enable_rep, apivoid_key=apivoid_key)
+        result = poll_connections(conns, enable_reputation=enable_rep, apivoid_key=apivoid_key, orb_token=orb_token)
         print(json.dumps(result, indent=2))
     else:
         # Fallback auf Einzel-Polling

@@ -1094,6 +1094,121 @@ export default class SnmpBarExtension extends Extension {
             sidecar.add_child(detailBox);
         }
 
+        // 2b. ORB Experience Card (falls ORB-Telemetrie für die Verbindung vorhanden ist)
+        if (conn && conn.orb) {
+            const orb = conn.orb;
+            const orbBox = new St.BoxLayout({
+                vertical: true,
+                style: `background-color: ${badgeBg}; border: 1px solid ${detailBorder}; border-radius: 8px; padding: 8px 12px; margin-top: 6px; margin-bottom: 8px;`,
+            });
+
+            // Header-Zeile: Titel, Status & ISP
+            const orbHeadRow = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER, style: 'margin-bottom: 6px;' });
+            const orbSensorName = orb.name || conn.orb_name || 'Sensor';
+            const orbTitle = new St.Label({
+                text: `ORB Experience (${orbSensorName})`,
+                style: `color: ${mutedColor}; font-weight: 700; font-size: 11px;`,
+            });
+            orbHeadRow.add_child(orbTitle);
+
+            const isConn = orb.is_connected !== false;
+            const orbStatusDot = new St.Label({
+                text: isConn ? '  ● Connected' : '  ● Offline',
+                style: `color: ${isConn ? (isDarkMode ? '#33d17a' : '#26a269') : (isDarkMode ? '#f66151' : '#c01c28')}; font-weight: 600; font-size: 11px; margin-left: 6px;`,
+            });
+            orbHeadRow.add_child(orbStatusDot);
+
+            if (orb.isp) {
+                const ispLbl = new St.Label({
+                    text: ` · ${orb.isp}`,
+                    style: `color: ${mutedColor}; font-size: 11px; margin-left: 4px;`,
+                });
+                orbHeadRow.add_child(ispLbl);
+            }
+            orbBox.add_child(orbHeadRow);
+
+            // Metriken-Zeile: Gesamt-Score Badge + 3 Adwaita Symbolic Sub-Metriken
+            const metricsRow = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER });
+
+            // Gesamt-Score Pill
+            const scoreVal = typeof orb.score === 'number' ? orb.score : (orb.score != null ? parseInt(orb.score, 10) : null);
+            const scoreText = scoreVal != null ? String(scoreVal) : '--';
+            let scoreBg = isDarkMode ? 'rgba(51, 209, 122, 0.2)' : 'rgba(38, 162, 105, 0.15)';
+            let scoreColor = isDarkMode ? '#33d17a' : '#26a269';
+            if (typeof scoreVal === 'number') {
+                if (scoreVal < 70) {
+                    scoreBg = isDarkMode ? 'rgba(246, 97, 81, 0.2)' : 'rgba(192, 28, 40, 0.15)';
+                    scoreColor = isDarkMode ? '#f66151' : '#c01c28';
+                } else if (scoreVal < 85) {
+                    scoreBg = isDarkMode ? 'rgba(248, 228, 92, 0.2)' : 'rgba(198, 120, 0, 0.15)';
+                    scoreColor = isDarkMode ? '#f8e45c' : '#b36b00';
+                }
+            }
+
+            const scoreBadge = new St.Label({
+                text: ` ${scoreText} `,
+                style: `background-color: ${scoreBg}; color: ${scoreColor}; font-weight: 800; font-size: 13px; border-radius: 6px; padding: 2px 7px; margin-right: 12px;`,
+            });
+            metricsRow.add_child(scoreBadge);
+
+            // 1. Responsiveness (thunderbolt-symbolic)
+            const respIcon = new St.Icon({
+                icon_name: 'thunderbolt-symbolic',
+                icon_size: 13,
+                style: `color: ${sectionColor}; margin-right: 4px;`,
+            });
+            const respVal = new St.Label({
+                text: `${orb.responsiveness != null ? orb.responsiveness : '--'} `,
+                style: `color: ${sectionColor}; font-weight: bold; font-size: 11px;`,
+            });
+            const respLbl = new St.Label({
+                text: 'Responsiveness  ',
+                style: `color: ${mutedColor}; font-size: 11px; margin-right: 8px;`,
+            });
+            metricsRow.add_child(respIcon);
+            metricsRow.add_child(respVal);
+            metricsRow.add_child(respLbl);
+
+            // 2. Zuverlässigkeit (security-high-symbolic)
+            const relIcon = new St.Icon({
+                icon_name: 'security-high-symbolic',
+                icon_size: 13,
+                style: `color: ${sectionColor}; margin-right: 4px;`,
+            });
+            const relVal = new St.Label({
+                text: `${orb.reliability != null ? orb.reliability : '--'} `,
+                style: `color: ${sectionColor}; font-weight: bold; font-size: 11px;`,
+            });
+            const relLbl = new St.Label({
+                text: 'Zuverlässigkeit  ',
+                style: `color: ${mutedColor}; font-size: 11px; margin-right: 8px;`,
+            });
+            metricsRow.add_child(relIcon);
+            metricsRow.add_child(relVal);
+            metricsRow.add_child(relLbl);
+
+            // 3. Geschwindigkeit (speedometer-symbolic)
+            const spdIcon = new St.Icon({
+                icon_name: 'speedometer-symbolic',
+                icon_size: 13,
+                style: `color: ${sectionColor}; margin-right: 4px;`,
+            });
+            const spdVal = new St.Label({
+                text: `${orb.speed != null ? orb.speed : '--'} `,
+                style: `color: ${sectionColor}; font-weight: bold; font-size: 11px;`,
+            });
+            const spdLbl = new St.Label({
+                text: 'Speed',
+                style: `color: ${mutedColor}; font-size: 11px;`,
+            });
+            metricsRow.add_child(spdIcon);
+            metricsRow.add_child(spdVal);
+            metricsRow.add_child(spdLbl);
+
+            orbBox.add_child(metricsRow);
+            sidecar.add_child(orbBox);
+        }
+
         // 3. Download Graph
         const dlBox = new St.BoxLayout({ vertical: true, style: 'margin-top: 4px; margin-bottom: 8px;' });
         const dlHead = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER });
@@ -1262,6 +1377,27 @@ export default class SnmpBarExtension extends Extension {
             });
             titleRow.add_child(hostIcon);
             titleRow.add_child(headerLabel);
+
+            if (conn.orb && conn.orb.score != null) {
+                const orbScore = conn.orb.score;
+                let orbBadgeBg = isDarkMode ? 'rgba(51, 209, 122, 0.2)' : 'rgba(38, 162, 105, 0.15)';
+                let orbBadgeColor = isDarkMode ? '#33d17a' : '#26a269';
+                if (typeof orbScore === 'number') {
+                    if (orbScore < 70) {
+                        orbBadgeBg = isDarkMode ? 'rgba(246, 97, 81, 0.2)' : 'rgba(192, 28, 40, 0.15)';
+                        orbBadgeColor = isDarkMode ? '#f66151' : '#c01c28';
+                    } else if (orbScore < 85) {
+                        orbBadgeBg = isDarkMode ? 'rgba(248, 228, 92, 0.2)' : 'rgba(198, 120, 0, 0.15)';
+                        orbBadgeColor = isDarkMode ? '#f8e45c' : '#b36b00';
+                    }
+                }
+                const orbBadge = new St.Label({
+                    text: ` ${orbScore} `,
+                    style: `background-color: ${orbBadgeBg}; color: ${orbBadgeColor}; font-weight: bold; font-size: 10px; border-radius: 4px; padding: 1px 5px; margin-left: 8px;`,
+                });
+                titleRow.add_child(orbBadge);
+            }
+
             cardBox.add_child(titleRow);
 
             if (showUptime && conn.uptime_formatted) {
@@ -1568,10 +1704,11 @@ export default class SnmpBarExtension extends Extension {
 
         const enableRep = this._getBool('enable-ip-reputation', true) ? 'true' : 'false';
         const apivoidKey = this._getStr('apivoid-api-key', '');
+        const orbToken = this._getStr('orb-api-token', '');
 
         try {
             const proc = Gio.Subprocess.new(
-                ['/usr/bin/python3', this._backendScript, '--connections', connsJson, enableRep, apivoidKey],
+                ['/usr/bin/python3', this._backendScript, '--connections', connsJson, enableRep, apivoidKey, orbToken],
                 Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
             );
 

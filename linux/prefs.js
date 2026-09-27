@@ -569,12 +569,13 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         addConnRow.add_suffix(addConnBtn);
         headerGroup.add(addConnRow);
 
+        const localHostName = GLib.get_host_name() || 'Lokaler PC';
         const addLocalRow = new Adw.ActionRow({
-            title: _('Lokaler Rechner (ThinkPad)'),
+            title: _(`Lokaler Rechner (${localHostName})`),
             subtitle: _('Lokale Schnittstellen (Ethernet, WLAN, 5G) direkt ohne SNMP überwachen'),
         });
         const addLocalBtn = new Gtk.Button({
-            label: _('+ ThinkPad hinzufügen'),
+            label: _(`+ ${localHostName} hinzufügen`),
             icon_name: 'computer-symbolic',
             valign: Gtk.Align.CENTER,
         });
@@ -694,6 +695,17 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                 });
                 connExpander.add_row(showAggRow);
 
+                // 2c. Zugeordneter ORB-Sensor (Standort / Aggregiert)
+                const orbRow = new Adw.EntryRow({
+                    title: _('Zugeordneter ORB-Sensor (Standort / Aggregiert)'),
+                    text: conn.orb_name || '',
+                });
+                orbRow.connect('changed', (entry) => {
+                    conn.orb_name = entry.text.trim();
+                    saveConnections(list);
+                });
+                connExpander.add_row(orbRow);
+
                 // 3. Host IP
                 const hostRow = new Adw.EntryRow({
                     title: _('Router / Host IP'),
@@ -764,7 +776,7 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                         { id: 'network-transmit-receive-symbolic', label: _('Glasfaser / Fiber / SFP') },
                         { id: 'network-wireless-symbolic', label: _('WLAN / Wi-Fi') },
                         { id: 'network-vpn-symbolic', label: _('VPN / Tunnel') },
-                        { id: 'computer-symbolic', label: _('Lokaler Computer / ThinkPad') },
+                        { id: 'computer-symbolic', label: _('Lokaler Computer / PC') },
                         { id: 'security-high-symbolic', label: _('Firewall / Schutz') },
                         { id: 'drive-harddisk-symbolic', label: _('Server / Storage') },
                         { id: 'applications-internet-symbolic', label: _('Internet / WAN') },
@@ -944,11 +956,11 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
 
         addLocalBtn.connect('clicked', () => {
             const list = loadConnections();
-            const newId = `thinkpad_${Date.now()}`;
+            const newId = `local_${Date.now()}`;
             list.push({
                 id: newId,
-                name: 'ThinkPad',
-                aggregated_name: 'ThinkPad Gesamt',
+                name: localHostName,
+                aggregated_name: `${localHostName} Gesamt`,
                 host: 'localhost',
                 community: 'public',
                 version: 'v2c',
@@ -1042,5 +1054,27 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
             subtitle: _('Der Speedtest wird niemals automatisch ausgeführt, sondern ausschließlich bei manuellem Klick auf "Speedtest durchführen" im Menü.'),
         });
         speedtestGroup.add(stInfoRow);
+
+        // Gruppe 3: ORB Cloud Integration
+        const orbGroup = new Adw.PreferencesGroup({
+            title: _('ORB Cloud Integration (orb.net)'),
+            description: _('Zentrale Abfrage von Responsiveness (Blitz), Zuverlässigkeit (Schild) und Speed (Tacho)'),
+        });
+        toolsPage.add(orbGroup);
+
+        const orbTokenRow = new Adw.PasswordEntryRow({
+            title: _('ORB Cloud API-Token (Bearer Token)'),
+            text: settings.get_string('orb-api-token') || '',
+        });
+        orbTokenRow.connect('changed', () => {
+            settings.set_string('orb-api-token', orbTokenRow.text.trim());
+        });
+        orbGroup.add(orbTokenRow);
+
+        const orbInfoRow = new Adw.ActionRow({
+            title: _('Sensor-Zuordnung'),
+            subtitle: _('Trage den Sensor-Namen (z. B. kr-home, ne-mbo, tr-crummenauer) im Reiter "Verbindungen" beim jeweiligen Gateway ein.'),
+        });
+        orbGroup.add(orbInfoRow);
     }
 }

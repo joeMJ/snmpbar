@@ -278,5 +278,12 @@
       <description>Optionaler geheimer Schlüssel für APIVoid. Wenn leer, werden die kostenlosen Bot- und Reputationsdienste verwendet.</description>
     </key>
 
+    <!-- ORB Cloud Integration -->
+    <key name="orb-api-token" type="s">
+      <default>''</default>
+      <summary>ORB Cloud API-Token</summary>
+      <description>Bearer API-Token für panel.orb.net zur Abfrage von Netzwerk-Experience-Scores (Responsiveness, Zuverlässigkeit, Speed).</description>
+    </key>
+
   </schema>
 </schemalist>
