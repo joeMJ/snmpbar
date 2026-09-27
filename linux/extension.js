@@ -429,6 +429,20 @@ export default class SnmpBarExtension extends Extension {
         return `vor ${days} Tg.`;
     }
 
+    _copyToClipboard(text, label = 'IP kopiert') {
+        if (!text) return;
+        try {
+            St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, text);
+            try {
+                Main.osdWindowManager.show(-1, Gio.Icon.new_for_string('edit-copy-symbolic'), `${label}: ${text}`);
+            } catch (e) {
+                Main.notify('snmpbar', `${label}: ${text}`);
+            }
+        } catch (err) {
+            console.error(`[snmpbar] Fehler beim Kopieren in Zwischenablage: ${err}`);
+        }
+    }
+
     _runSpeedtest() {
         if (this._isSpeedtesting) return;
         this._isSpeedtesting = true;
@@ -1089,7 +1103,7 @@ export default class SnmpBarExtension extends Extension {
             style: `color: ${graphDownColor}; margin-right: 5px;`,
         });
         const dlTitle = new St.Label({
-            text: 'Download (Empfang)',
+            text: 'Download',
             style: `color: ${sectionColor}; font-weight: bold; font-size: 12px;`,
         });
         dlHead.add_child(dlIcon);
@@ -1121,7 +1135,7 @@ export default class SnmpBarExtension extends Extension {
             style: `color: ${graphUpColor}; margin-right: 5px;`,
         });
         const ulTitle = new St.Label({
-            text: 'Upload (Senden)',
+            text: 'Upload',
             style: `color: ${sectionColor}; font-weight: bold; font-size: 12px;`,
         });
         ulHead.add_child(ulIcon);
@@ -1345,6 +1359,19 @@ export default class SnmpBarExtension extends Extension {
                         });
                     }
 
+                    totalGraph.connect('button-press-event', () => {
+                        const activeIface = (conn.interfaces || []).find(i => i.is_up && i.external_ip);
+                        const ipToCopy = activeIface ? activeIface.external_ip : (conn.host || null);
+                        if (ipToCopy) {
+                            this._copyToClipboard(ipToCopy, 'IP kopiert');
+                        } else {
+                            try {
+                                Main.osdWindowManager.show(-1, Gio.Icon.new_for_string('network-offline-symbolic'), 'Keine IP vorhanden');
+                            } catch (e) {}
+                        }
+                        return Clutter.EVENT_STOP;
+                    });
+
                     lbContainer.add_child(totalGraph);
                 }
 
@@ -1448,6 +1475,18 @@ export default class SnmpBarExtension extends Extension {
                                 return Clutter.EVENT_PROPAGATE;
                             });
                         }
+
+                        ifaceGraph.connect('button-press-event', () => {
+                            const ipToCopy = iface.external_ip || (iface.ip_type === 'Lokal' ? iface.index : null);
+                            if (ipToCopy) {
+                                this._copyToClipboard(ipToCopy, 'IP kopiert');
+                            } else {
+                                try {
+                                    Main.osdWindowManager.show(-1, Gio.Icon.new_for_string('network-offline-symbolic'), 'Keine externe IP vorhanden');
+                                } catch (e) {}
+                            }
+                            return Clutter.EVENT_STOP;
+                        });
 
                         singleIfaceBox.add_child(ifaceGraph);
                     }
