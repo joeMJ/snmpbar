@@ -178,6 +178,24 @@
       <description>Hex-Farbcode inkl. Transparenz für den Hintergrund der Standort-Kacheln im dunklen Menü (Standard: transparent).</description>
     </key>
 
+    <key name="dropdown-hover-dim-color" type="s">
+      <default>'#00000025'</default>
+      <summary>Hover-Abdunklung Graph (Helles Design)</summary>
+      <description>Überlagerungsfarbe/Abdunklung bei Maus-Hover über einen Graphen im hellen Dropdown-Menü.</description>
+    </key>
+
+    <key name="dropdown-dark-hover-dim-color" type="s">
+      <default>'#ffffff20'</default>
+      <summary>Hover-Abdunklung Graph (Dunkles Design)</summary>
+      <description>Überlagerungsfarbe/Abdunklung bei Maus-Hover über einen Graphen im dunklen Dropdown-Menü.</description>
+    </key>
+
+    <key name="show-hover-popout" type="b">
+      <default>true</default>
+      <summary>Detail-Fenster bei Hover anzeigen</summary>
+      <description>Öffnet ein vergrößertes Detailfenster mit skalierten Graphen und Verbindungsdetails neben dem Dropdown.</description>
+    </key>
+
     <!-- Legacy Farb-Keys zur Abwärtskompatibilität -->
     <key name="color-download" type="s">
       <default>'#3584e4'</default>

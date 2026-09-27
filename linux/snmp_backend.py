@@ -383,9 +383,88 @@ def fetch_lancom_peer_details(host, community, version=1):
 
     return peers
 
+# --- Lokale Schnittstellen-Erfassung (Linux /proc/net/dev) ---
+
+def read_local_proc_net_dev():
+    res = {}
+    try:
+        with open("/proc/net/dev", "r") as f:
+            lines = f.readlines()
+        for line in lines[2:]:
+            if ":" not in line:
+                continue
+            iface_name, rest = line.split(":", 1)
+            iface_name = iface_name.strip()
+            parts = rest.split()
+            rx_bytes = int(parts[0])
+            tx_bytes = int(parts[8])
+            res[iface_name] = {"rx_bytes": rx_bytes, "tx_bytes": tx_bytes}
+    except Exception:
+        pass
+    return res
+
+def get_local_uptime():
+    try:
+        with open("/proc/uptime", "r") as f:
+            seconds = float(f.readline().split()[0])
+            ticks = int(seconds * 100)
+            return ticks, format_uptime(ticks)
+    except Exception:
+        return 0, ""
+
+def discover_local_interfaces():
+    devs = []
+    base = '/sys/class/net'
+    if not os.path.exists(base):
+        return []
+    for name in sorted(os.listdir(base)):
+        if name == 'lo':
+            continue
+        oper = 'unknown'
+        try:
+            with open(f'{base}/{name}/operstate') as f:
+                oper = f.read().strip()
+        except: pass
+        
+        speed = 0
+        try:
+            with open(f'{base}/{name}/speed') as f:
+                speed = int(f.read().strip())
+        except: pass
+
+        icon = 'network-wired-symbolic'
+        label = name
+        if name.startswith('wl') or 'wlan' in name or 'wifi' in name:
+            icon = 'network-wireless-symbolic'
+            label = f"WLAN ({name})"
+        elif name.startswith('ww') or 'wwan' in name or 'lte' in name or '5g' in name:
+            icon = 'network-cellular-signal-excellent-symbolic'
+            label = f"5G ({name})"
+        elif name.startswith('en') or name.startswith('eth'):
+            icon = 'network-wired-symbolic'
+            label = f"Ethernet ({name})"
+        elif name.startswith('tun') or name.startswith('wg'):
+            icon = 'network-vpn-symbolic'
+            label = f"VPN ({name})"
+
+        devs.append({
+            'index': name,
+            'name': label,
+            'descr': f'Lokale Schnittstelle {name}',
+            'alias': name,
+            'display_name': label,
+            'is_up': (oper == 'up'),
+            'speed_mbps': float(speed) if speed > 0 else 0.0,
+            'suggested_icon': icon
+        })
+    return devs
+
 # --- Discovery (SNMP Walk) ---
 
 def discover_interfaces(host, community, version_str="v2c"):
+    if str(host).lower() in ["localhost", "local", "127.0.0.1"]:
+        return {"status": "ok", "host": host, "discovered_interfaces": discover_local_interfaces()}
+
     version = 1 if version_str == "v2c" else 0
     descrs = snmp_walk(host, community, "1.3.6.1.2.1.2.2.1.2", version=version)
     names = snmp_walk(host, community, "1.3.6.1.2.1.31.1.1.1.1", version=version)
@@ -469,188 +548,293 @@ def poll_connections(connections):
         version = 1 if version_str == "v2c" else 0
         ifaces = conn.get("interfaces", [])
         
-        oids_to_query = ["1.3.6.1.2.1.1.3.0"]
-        for iface in ifaces:
-            idx = iface["index"]
-            if version == 1:
-                oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.6.{idx}")
-                oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.10.{idx}")
-            else:
-                oids_to_query.append(f"1.3.6.1.2.1.2.2.1.10.{idx}")
-                oids_to_query.append(f"1.3.6.1.2.1.2.2.1.16.{idx}")
-            oids_to_query.append(f"1.3.6.1.2.1.2.2.1.8.{idx}")
-            oids_to_query.append(f"1.3.6.1.2.1.2.2.1.7.{idx}")
-            oids_to_query.append(f"1.3.6.1.2.1.2.2.1.9.{idx}")
-            oids_to_query.append(f"1.3.6.1.2.1.2.2.1.5.{idx}")
-            oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.15.{idx}")
-            oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.18.{idx}")
-            oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.1.{idx}")
-            oids_to_query.append(f"1.3.6.1.2.1.2.2.1.2.{idx}")
-            
-        snmp_data = snmp_get_multiple(host, community, oids_to_query, version=version)
-        is_online = bool(snmp_data)
+        is_local = str(host).lower() in ["localhost", "local", "127.0.0.1"] or conn.get("is_local") or conn.get("type") == "local"
 
-        uptime_ticks = snmp_data.get("1.3.6.1.2.1.1.3.0")
-        uptime_str = format_uptime(uptime_ticks) if uptime_ticks else ""
-
-        # Lancom Verbindungs-Laufzeiten, WAN-IPs & QoS-Shaper abrufen
-        lancom_peers = {}
-        if is_online:
-            lancom_peers = fetch_lancom_peer_details(host, community, version=version)
-        
         total_rx_bps = 0.0
         total_tx_bps = 0.0
         total_rx_bytes_sec = 0.0
         total_tx_bytes_sec = 0.0
         iface_results = []
-        
-        for iface in ifaces:
-            idx = iface["index"]
-            cache_key = f"{conn_id}:{idx}"
-            if version == 1:
-                in_oid = f"1.3.6.1.2.1.31.1.1.1.6.{idx}"
-                out_oid = f"1.3.6.1.2.1.31.1.1.1.10.{idx}"
-            else:
-                in_oid = f"1.3.6.1.2.1.2.2.1.10.{idx}"
-                out_oid = f"1.3.6.1.2.1.2.2.1.16.{idx}"
-            status_oid = f"1.3.6.1.2.1.2.2.1.8.{idx}"
-            admin_oid = f"1.3.6.1.2.1.2.2.1.7.{idx}"
-            
-            in_raw = snmp_data.get(in_oid)
-            out_raw = snmp_data.get(out_oid)
-            oper_raw = snmp_data.get(status_oid, 2)
-            admin_raw = snmp_data.get(admin_oid, 1)
 
-            rx_bps = 0.0
-            tx_bps = 0.0
-            rx_bytes_sec = 0.0
-            tx_bytes_sec = 0.0
-            
-            if in_raw is not None and out_raw is not None:
-                current_state_cache["counters"][cache_key] = {"in": in_raw, "out": out_raw}
-                if 0.5 <= dt <= 60.0 and cache_key in prev_state.get("counters", {}):
-                    prev_in = prev_state["counters"][cache_key]["in"]
-                    prev_out = prev_state["counters"][cache_key]["out"]
-                    mask = 0xFFFFFFFFFFFFFFFF if version == 1 else 0xFFFFFFFF
-                    d_in = (in_raw - prev_in) & mask
-                    d_out = (out_raw - prev_out) & mask
-                    rx_bytes_sec = d_in / dt
-                    tx_bytes_sec = d_out / dt
-                    rx_bps = rx_bytes_sec * 8.0
-                    tx_bps = tx_bytes_sec * 8.0
+        if is_local:
+            local_ticks, local_uptime_str = get_local_uptime()
+            local_devs = read_local_proc_net_dev()
+            is_online = True
+            uptime_ticks = local_ticks
+            uptime_str = local_uptime_str
 
-            # Online-Erkennung:
-            # 1. Standard ifOperStatus == 1 (up) -> Online
-            # 2. Wenn aktiver Durchsatz gemessen wird (rx_bps > 50 oder tx_bps > 50) -> Online (z.B. WAN-Bridges wie XDSL-1)
-            is_up = (oper_raw == 1) or (rx_bps > 50 or tx_bps > 50)
+            for iface in ifaces:
+                idx = str(iface.get("index", iface.get("id", "")))
+                dev_name = idx if idx in local_devs else str(iface.get("alias") or iface.get("id") or iface.get("name") or "").strip()
+                if dev_name not in local_devs:
+                    for d in local_devs:
+                        if d in dev_name or dev_name in d or d in str(iface.get("name", "")) or d in str(iface.get("index", "")):
+                            dev_name = d
+                            break
 
-            # Leitungs-Laufzeit, WAN-IP, CGNAT, Sync & QoS ermitteln
-            iface_uptime_str = ""
-            matched_peer = None
-            alias_snmp = str(snmp_data.get(f"1.3.6.1.2.1.31.1.1.1.18.{idx}", "")).upper()
-            name_snmp = str(snmp_data.get(f"1.3.6.1.2.1.31.1.1.1.1.{idx}", "")).upper()
-            descr_snmp = str(snmp_data.get(f"1.3.6.1.2.1.2.2.1.2.{idx}", "")).upper()
-            user_name = str(iface.get("name", "")).upper()
-            user_id = str(iface.get("id", "")).upper()
-            tokens = [alias_snmp, name_snmp, descr_snmp, user_name, user_id]
+                cache_key = f"{conn_id}:{idx}"
+                is_up = False
+                oper_path = f"/sys/class/net/{dev_name}/operstate"
+                if os.path.exists(oper_path):
+                    try:
+                        with open(oper_path) as f:
+                            is_up = (f.read().strip() == "up")
+                    except: pass
 
-            # 1. Lancom Peer Match
-            for p_name, p_data in lancom_peers.items():
-                if any(p_name and (p_name in tok or tok in p_name) for tok in tokens if tok):
-                    matched_peer = p_data
-                    break
-            
-            # Fallback bei Single-Interface Routern mit 1 WAN-Peer (z.B. Standort / Standort)
-            if not matched_peer and len(lancom_peers) == 1 and len(ifaces) == 1:
-                matched_peer = next(iter(lancom_peers.values()))
-            elif not matched_peer and "INTERNET" in lancom_peers and any("DSL" in tok or "WAN" in tok or "FIBER" in tok or "GLAS" in tok for tok in tokens if tok):
-                matched_peer = lancom_peers["INTERNET"]
+                speed_mbps = 0.0
+                speed_path = f"/sys/class/net/{dev_name}/speed"
+                if os.path.exists(speed_path):
+                    try:
+                        with open(speed_path) as f:
+                            s = int(f.read().strip())
+                            if s > 0: speed_mbps = float(s)
+                    except: pass
 
-            ext_ip = ""
-            is_cgnat = False
-            ip_type = ""
-            dns_servers = []
-            sync_rx = 0
-            sync_tx = 0
-            shaper_rx = 0
-            shaper_tx = 0
-            sync_str = ""
-            qos_str = ""
+                in_raw = None
+                out_raw = None
+                if dev_name in local_devs:
+                    in_raw = local_devs[dev_name]["rx_bytes"]
+                    out_raw = local_devs[dev_name]["tx_bytes"]
 
-            speed_raw = snmp_data.get(f"1.3.6.1.2.1.2.2.1.5.{idx}", 0) or 0
-            high_speed_raw = snmp_data.get(f"1.3.6.1.2.1.31.1.1.1.15.{idx}", 0) or 0
-            speed_mbps = float(high_speed_raw) if high_speed_raw > 0 else round(speed_raw / 1_000_000.0, 1)
+                rx_bps = 0.0
+                tx_bps = 0.0
+                rx_bytes_sec = 0.0
+                tx_bytes_sec = 0.0
 
-            if matched_peer:
-                if is_up:
-                    iface_uptime_str = matched_peer.get("uptime", "")
-                ext_ip = matched_peer.get("ip", "")
-                is_cgnat = matched_peer.get("is_cgnat", False)
-                ip_type = matched_peer.get("ip_type", "")
-                dns_servers = matched_peer.get("dns", [])
-                sync_rx = matched_peer.get("max_rx_kbit", 0)
-                sync_tx = matched_peer.get("max_tx_kbit", 0)
-                shaper_rx = matched_peer.get("shaper_rx_kbit", 0)
-                shaper_tx = matched_peer.get("shaper_tx_kbit", 0)
+                if in_raw is not None and out_raw is not None:
+                    current_state_cache["counters"][cache_key] = {"in": in_raw, "out": out_raw}
+                    if 0.5 <= dt <= 60.0 and cache_key in prev_state.get("counters", {}):
+                        prev_in = prev_state["counters"][cache_key]["in"]
+                        prev_out = prev_state["counters"][cache_key]["out"]
+                        d_in = (in_raw - prev_in) & 0xFFFFFFFFFFFFFFFF
+                        d_out = (out_raw - prev_out) & 0xFFFFFFFFFFFFFFFF
+                        rx_bytes_sec = d_in / dt
+                        tx_bytes_sec = d_out / dt
+                        rx_bps = rx_bytes_sec * 8.0
+                        tx_bps = tx_bytes_sec * 8.0
 
-            if sync_rx > 0 and sync_tx > 0:
-                sync_str = f"↓ {sync_rx / 1000.0:.1f} Mbit · ↑ {sync_tx / 1000.0:.1f} Mbit"
-            elif speed_mbps > 0:
-                sync_str = f"Sync: {speed_mbps:.1f} Mbit"
+                if rx_bps > 50 or tx_bps > 50:
+                    is_up = True
 
-            if shaper_rx > 0 and shaper_tx > 0:
-                qos_str = f"↓ {shaper_rx / 1000.0:.1f} Mbit · ↑ {shaper_tx / 1000.0:.1f} Mbit"
+                if is_up or rx_bps > 0 or tx_bps > 0:
+                    total_rx_bps += rx_bps
+                    total_tx_bps += tx_bps
+                    total_rx_bytes_sec += rx_bytes_sec
+                    total_tx_bytes_sec += tx_bytes_sec
 
-            # 2. Standard MIB-2 Fallback via ifLastChange oder sysUpTime
-            if is_up and not iface_uptime_str and uptime_ticks:
-                last_chg = snmp_data.get(f"1.3.6.1.2.1.2.2.1.9.{idx}", 0)
-                if last_chg and last_chg > 0 and uptime_ticks > last_chg:
-                    diff = uptime_ticks - last_chg
-                    iface_uptime_str = f"seit {format_uptime(diff)}"
-                elif uptime_str:
-                    iface_uptime_str = f"seit {uptime_str}"
-                    
-            if is_up or rx_bps > 0 or tx_bps > 0:
-                total_rx_bps += rx_bps
-                total_tx_bps += tx_bps
-                total_rx_bytes_sec += rx_bytes_sec
-                total_tx_bytes_sec += tx_bytes_sec
+                iface_results.append({
+                    "id": iface.get("id", str(idx)),
+                    "name": iface.get("name", f"Interface {idx}"),
+                    "index": idx,
+                    "icon": iface.get("icon", "network-wired-symbolic"),
+                    "show_graph": iface.get("show_graph", True),
+                    "is_up": is_up,
+                    "status_str": "Online" if is_up else "Offline",
+                    "uptime_str": f"seit {uptime_str}" if (is_up and uptime_str) else "",
+                    "external_ip": "",
+                    "is_cgnat": False,
+                    "ip_type": "Lokal",
+                    "dns_servers": [],
+                    "sync_rx_kbit": round(speed_mbps * 1000) if speed_mbps > 0 else 0,
+                    "sync_tx_kbit": round(speed_mbps * 1000) if speed_mbps > 0 else 0,
+                    "sync_formatted": f"Sync: {speed_mbps:.1f} Mbit" if speed_mbps > 0 else "",
+                    "qos_rx_kbit": 0,
+                    "qos_tx_kbit": 0,
+                    "qos_formatted": "",
+                    "speed_mbps": speed_mbps,
+                    "rx_bps": round(rx_bps),
+                    "tx_bps": round(tx_bps),
+                    "rx_formatted": format_rate(rx_bps, "full"),
+                    "tx_formatted": format_rate(tx_bps, "full"),
+                    "rx_bytes_formatted": format_bytes_rate(rx_bytes_sec, "full"),
+                    "tx_bytes_formatted": format_bytes_rate(tx_bytes_sec, "full"),
+                    "rx_compact": format_rate(rx_bps, "compact"),
+                    "tx_compact": format_rate(tx_bps, "compact"),
+                    "rx_bytes_compact": format_bytes_rate(rx_bytes_sec, "compact"),
+                    "tx_bytes_compact": format_bytes_rate(tx_bytes_sec, "compact"),
+                    "rx_short": format_rate(rx_bps, "short"),
+                    "tx_short": format_rate(tx_bps, "short"),
+                    "rx_bytes_short": format_bytes_rate(rx_bytes_sec, "short"),
+                    "tx_bytes_short": format_bytes_rate(tx_bytes_sec, "short")
+                })
+        else:
+            # --- SNMP-basiertes Polling ---
+            oids_to_query = ["1.3.6.1.2.1.1.3.0"]
+            for iface in ifaces:
+                idx = iface["index"]
+                if version == 1:
+                    oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.6.{idx}")
+                    oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.10.{idx}")
+                else:
+                    oids_to_query.append(f"1.3.6.1.2.1.2.2.1.10.{idx}")
+                    oids_to_query.append(f"1.3.6.1.2.1.2.2.1.16.{idx}")
+                oids_to_query.append(f"1.3.6.1.2.1.2.2.1.8.{idx}")
+                oids_to_query.append(f"1.3.6.1.2.1.2.2.1.7.{idx}")
+                oids_to_query.append(f"1.3.6.1.2.1.2.2.1.9.{idx}")
+                oids_to_query.append(f"1.3.6.1.2.1.2.2.1.5.{idx}")
+                oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.15.{idx}")
+                oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.18.{idx}")
+                oids_to_query.append(f"1.3.6.1.2.1.31.1.1.1.1.{idx}")
+                oids_to_query.append(f"1.3.6.1.2.1.2.2.1.2.{idx}")
                 
-            iface_results.append({
-                "id": iface.get("id", str(idx)),
-                "name": iface.get("name", f"Interface {idx}"),
-                "index": idx,
-                "icon": iface.get("icon", "network-wired-symbolic"),
-                "show_graph": iface.get("show_graph", True),
-                "is_up": is_up,
-                "status_str": "Online" if is_up else "Offline",
-                "uptime_str": iface_uptime_str,
-                "external_ip": ext_ip,
-                "is_cgnat": is_cgnat,
-                "ip_type": ip_type,
-                "dns_servers": dns_servers,
-                "sync_rx_kbit": sync_rx,
-                "sync_tx_kbit": sync_tx,
-                "sync_formatted": sync_str,
-                "qos_rx_kbit": shaper_rx,
-                "qos_tx_kbit": shaper_tx,
-                "qos_formatted": qos_str,
-                "speed_mbps": speed_mbps,
-                "rx_bps": round(rx_bps),
-                "tx_bps": round(tx_bps),
-                "rx_formatted": format_rate(rx_bps, "full"),
-                "tx_formatted": format_rate(tx_bps, "full"),
-                "rx_bytes_formatted": format_bytes_rate(rx_bytes_sec, "full"),
-                "tx_bytes_formatted": format_bytes_rate(tx_bytes_sec, "full"),
-                "rx_compact": format_rate(rx_bps, "compact"),
-                "tx_compact": format_rate(tx_bps, "compact"),
-                "rx_bytes_compact": format_bytes_rate(rx_bytes_sec, "compact"),
-                "tx_bytes_compact": format_bytes_rate(tx_bytes_sec, "compact"),
-                "rx_short": format_rate(rx_bps, "short"),
-                "tx_short": format_rate(tx_bps, "short"),
-                "rx_bytes_short": format_bytes_rate(rx_bytes_sec, "short"),
-                "tx_bytes_short": format_bytes_rate(tx_bytes_sec, "short")
-            })
+            snmp_data = snmp_get_multiple(host, community, oids_to_query, version=version)
+            is_online = bool(snmp_data)
+
+            uptime_ticks = snmp_data.get("1.3.6.1.2.1.1.3.0")
+            uptime_str = format_uptime(uptime_ticks) if uptime_ticks else ""
+
+            # Lancom Verbindungs-Laufzeiten, WAN-IPs & QoS-Shaper abrufen
+            lancom_peers = {}
+            if is_online:
+                lancom_peers = fetch_lancom_peer_details(host, community, version=version)
+        
+            for iface in ifaces:
+                idx = iface["index"]
+                cache_key = f"{conn_id}:{idx}"
+                if version == 1:
+                    in_oid = f"1.3.6.1.2.1.31.1.1.1.6.{idx}"
+                    out_oid = f"1.3.6.1.2.1.31.1.1.1.10.{idx}"
+                else:
+                    in_oid = f"1.3.6.1.2.1.2.2.1.10.{idx}"
+                    out_oid = f"1.3.6.1.2.1.2.2.1.16.{idx}"
+                status_oid = f"1.3.6.1.2.1.2.2.1.8.{idx}"
+                admin_oid = f"1.3.6.1.2.1.2.2.1.7.{idx}"
+                
+                in_raw = snmp_data.get(in_oid)
+                out_raw = snmp_data.get(out_oid)
+                oper_raw = snmp_data.get(status_oid, 2)
+                admin_raw = snmp_data.get(admin_oid, 1)
+
+                rx_bps = 0.0
+                tx_bps = 0.0
+                rx_bytes_sec = 0.0
+                tx_bytes_sec = 0.0
+                
+                if in_raw is not None and out_raw is not None:
+                    current_state_cache["counters"][cache_key] = {"in": in_raw, "out": out_raw}
+                    if 0.5 <= dt <= 60.0 and cache_key in prev_state.get("counters", {}):
+                        prev_in = prev_state["counters"][cache_key]["in"]
+                        prev_out = prev_state["counters"][cache_key]["out"]
+                        mask = 0xFFFFFFFFFFFFFFFF if version == 1 else 0xFFFFFFFF
+                        d_in = (in_raw - prev_in) & mask
+                        d_out = (out_raw - prev_out) & mask
+                        rx_bytes_sec = d_in / dt
+                        tx_bytes_sec = d_out / dt
+                        rx_bps = rx_bytes_sec * 8.0
+                        tx_bps = tx_bytes_sec * 8.0
+
+                # Online-Erkennung:
+                # 1. Standard ifOperStatus == 1 (up) -> Online
+                # 2. Wenn aktiver Durchsatz gemessen wird (rx_bps > 50 oder tx_bps > 50) -> Online (z.B. WAN-Bridges wie XDSL-1)
+                is_up = (oper_raw == 1) or (rx_bps > 50 or tx_bps > 50)
+
+                # Leitungs-Laufzeit, WAN-IP, CGNAT, Sync & QoS ermitteln
+                iface_uptime_str = ""
+                matched_peer = None
+                alias_snmp = str(snmp_data.get(f"1.3.6.1.2.1.31.1.1.1.18.{idx}", "")).upper()
+                name_snmp = str(snmp_data.get(f"1.3.6.1.2.1.31.1.1.1.1.{idx}", "")).upper()
+                descr_snmp = str(snmp_data.get(f"1.3.6.1.2.1.2.2.1.2.{idx}", "")).upper()
+                user_name = str(iface.get("name", "")).upper()
+                user_id = str(iface.get("id", "")).upper()
+                tokens = [alias_snmp, name_snmp, descr_snmp, user_name, user_id]
+
+                # 1. Lancom Peer Match
+                for p_name, p_data in lancom_peers.items():
+                    if any(p_name and (p_name in tok or tok in p_name) for tok in tokens if tok):
+                        matched_peer = p_data
+                        break
+                
+                # Fallback bei Single-Interface Routern mit 1 WAN-Peer (z.B. Standort / Standort)
+                if not matched_peer and len(lancom_peers) == 1 and len(ifaces) == 1:
+                    matched_peer = next(iter(lancom_peers.values()))
+                elif not matched_peer and "INTERNET" in lancom_peers and any("DSL" in tok or "WAN" in tok or "FIBER" in tok or "GLAS" in tok for tok in tokens if tok):
+                    matched_peer = lancom_peers["INTERNET"]
+
+                ext_ip = ""
+                is_cgnat = False
+                ip_type = ""
+                dns_servers = []
+                sync_rx = 0
+                sync_tx = 0
+                shaper_rx = 0
+                shaper_tx = 0
+                sync_str = ""
+                qos_str = ""
+
+                speed_raw = snmp_data.get(f"1.3.6.1.2.1.2.2.1.5.{idx}", 0) or 0
+                high_speed_raw = snmp_data.get(f"1.3.6.1.2.1.31.1.1.1.15.{idx}", 0) or 0
+                speed_mbps = float(high_speed_raw) if high_speed_raw > 0 else round(speed_raw / 1_000_000.0, 1)
+
+                if matched_peer:
+                    if is_up:
+                        iface_uptime_str = matched_peer.get("uptime", "")
+                    ext_ip = matched_peer.get("ip", "")
+                    is_cgnat = matched_peer.get("is_cgnat", False)
+                    ip_type = matched_peer.get("ip_type", "")
+                    dns_servers = matched_peer.get("dns", [])
+                    sync_rx = matched_peer.get("max_rx_kbit", 0)
+                    sync_tx = matched_peer.get("max_tx_kbit", 0)
+                    shaper_rx = matched_peer.get("shaper_rx_kbit", 0)
+                    shaper_tx = matched_peer.get("shaper_tx_kbit", 0)
+
+                if sync_rx > 0 and sync_tx > 0:
+                    sync_str = f"↓ {sync_rx / 1000.0:.1f} Mbit · ↑ {sync_tx / 1000.0:.1f} Mbit"
+                elif speed_mbps > 0:
+                    sync_str = f"Sync: {speed_mbps:.1f} Mbit"
+
+                if shaper_rx > 0 and shaper_tx > 0:
+                    qos_str = f"↓ {shaper_rx / 1000.0:.1f} Mbit · ↑ {shaper_tx / 1000.0:.1f} Mbit"
+
+                # 2. Standard MIB-2 Fallback via ifLastChange oder sysUpTime
+                if is_up and not iface_uptime_str and uptime_ticks:
+                    last_chg = snmp_data.get(f"1.3.6.1.2.1.2.2.1.9.{idx}", 0)
+                    if last_chg and last_chg > 0 and uptime_ticks > last_chg:
+                        diff = uptime_ticks - last_chg
+                        iface_uptime_str = f"seit {format_uptime(diff)}"
+                    elif uptime_str:
+                        iface_uptime_str = f"seit {uptime_str}"
+                        
+                if is_up or rx_bps > 0 or tx_bps > 0:
+                    total_rx_bps += rx_bps
+                    total_tx_bps += tx_bps
+                    total_rx_bytes_sec += rx_bytes_sec
+                    total_tx_bytes_sec += tx_bytes_sec
+                    
+                iface_results.append({
+                    "id": iface.get("id", str(idx)),
+                    "name": iface.get("name", f"Interface {idx}"),
+                    "index": idx,
+                    "icon": iface.get("icon", "network-wired-symbolic"),
+                    "show_graph": iface.get("show_graph", True),
+                    "is_up": is_up,
+                    "status_str": "Online" if is_up else "Offline",
+                    "uptime_str": iface_uptime_str,
+                    "external_ip": ext_ip,
+                    "is_cgnat": is_cgnat,
+                    "ip_type": ip_type,
+                    "dns_servers": dns_servers,
+                    "sync_rx_kbit": sync_rx,
+                    "sync_tx_kbit": sync_tx,
+                    "sync_formatted": sync_str,
+                    "qos_rx_kbit": shaper_rx,
+                    "qos_tx_kbit": shaper_tx,
+                    "qos_formatted": qos_str,
+                    "speed_mbps": speed_mbps,
+                    "rx_bps": round(rx_bps),
+                    "tx_bps": round(tx_bps),
+                    "rx_formatted": format_rate(rx_bps, "full"),
+                    "tx_formatted": format_rate(tx_bps, "full"),
+                    "rx_bytes_formatted": format_bytes_rate(rx_bytes_sec, "full"),
+                    "tx_bytes_formatted": format_bytes_rate(tx_bytes_sec, "full"),
+                    "rx_compact": format_rate(rx_bps, "compact"),
+                    "tx_compact": format_rate(tx_bps, "compact"),
+                    "rx_bytes_compact": format_bytes_rate(rx_bytes_sec, "compact"),
+                    "tx_bytes_compact": format_bytes_rate(tx_bytes_sec, "compact"),
+                    "rx_short": format_rate(rx_bps, "short"),
+                    "tx_short": format_rate(tx_bps, "short"),
+                    "rx_bytes_short": format_bytes_rate(rx_bytes_sec, "short"),
+                    "tx_bytes_short": format_bytes_rate(tx_bytes_sec, "short")
+                })
             
         show_agg = conn.get("show_aggregated")
         if show_agg is None:

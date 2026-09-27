@@ -353,6 +353,13 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         settings.bind('show-iface-uptime', showIfaceUptimeRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         menuGroup.add(showIfaceUptimeRow);
 
+        const showHoverPopoutRow = new Adw.SwitchRow({
+            title: _('Detail-Popout bei Graph-Hover anzeigen'),
+            subtitle: _('Öffnet ein schwebendes Fenster mit zwei skalierten Graphen, WAN-IP, CGNAT & Sync/QoS'),
+        });
+        settings.bind('show-hover-popout', showHoverPopoutRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        menuGroup.add(showHoverPopoutRow);
+
         // ==========================================
         // SEITE 2: Farbdarstellung
         // ==========================================
@@ -464,6 +471,14 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
             true
         ));
 
+        dropLightColorGroup.add(createColorRow(
+            _('Graph Hover-Abdunklung (Hell)'),
+            _('Überlagerungsfarbe und Transparenz bei Maus-Hover über einen Graphen'),
+            'dropdown-hover-dim-color',
+            '#00000025',
+            true
+        ));
+
         // Gruppe 3: Dropdown-Menü Farben (Dunkles Design)
         const dropDarkColorGroup = new Adw.PreferencesGroup({
             title: _('Dropdown-Menü (Dunkles Design)'),
@@ -519,6 +534,14 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
             true
         ));
 
+        dropDarkColorGroup.add(createColorRow(
+            _('Graph Hover-Abdunklung (Dunkel)'),
+            _('Überlagerungsfarbe und Transparenz bei Maus-Hover über einen Graphen'),
+            'dropdown-dark-hover-dim-color',
+            '#ffffff20',
+            true
+        ));
+
         // ==========================================
         // SEITE 3: SNMP-Verbindungen & Schnittstellen
         // ==========================================
@@ -535,16 +558,28 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         snmpPage.add(headerGroup);
 
         const addConnRow = new Adw.ActionRow({
-            title: _('Neues Gerät hinzufügen'),
-            subtitle: _('Erstelle eine weitere SNMP-Verbindung'),
+            title: _('Neues SNMP-Gerät hinzufügen'),
+            subtitle: _('Erstelle eine weitere SNMP-Verbindung für Router / Gateways'),
         });
         const addConnBtn = new Gtk.Button({
-            label: _('+ Verbindung hinzufügen'),
+            label: _('+ Router hinzufügen'),
             valign: Gtk.Align.CENTER,
             css_classes: ['suggested-action'],
         });
         addConnRow.add_suffix(addConnBtn);
         headerGroup.add(addConnRow);
+
+        const addLocalRow = new Adw.ActionRow({
+            title: _('Lokaler Rechner (ThinkPad)'),
+            subtitle: _('Lokale Schnittstellen (Ethernet, WLAN, 5G) direkt ohne SNMP überwachen'),
+        });
+        const addLocalBtn = new Gtk.Button({
+            label: _('+ ThinkPad hinzufügen'),
+            icon_name: 'computer-symbolic',
+            valign: Gtk.Align.CENTER,
+        });
+        addLocalRow.add_suffix(addLocalBtn);
+        headerGroup.add(addLocalRow);
 
         const connsGroup = new Adw.PreferencesGroup();
         snmpPage.add(connsGroup);
@@ -902,6 +937,39 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
                 version: 'v2c',
                 interval: 3,
                 interfaces: []
+            });
+            saveConnections(list);
+            renderConnections();
+        });
+
+        addLocalBtn.connect('clicked', () => {
+            const list = loadConnections();
+            const newId = `thinkpad_${Date.now()}`;
+            list.push({
+                id: newId,
+                name: 'ThinkPad',
+                aggregated_name: 'ThinkPad Gesamt',
+                host: 'localhost',
+                community: 'public',
+                version: 'v2c',
+                is_local: true,
+                interval: 2,
+                interfaces: [
+                    {
+                        id: 'eth_enp7s0',
+                        name: 'Ethernet',
+                        index: 'enp7s0',
+                        icon: 'network-wired-symbolic',
+                        show_graph: true
+                    },
+                    {
+                        id: 'wifi_wlo1',
+                        name: 'WLAN',
+                        index: 'wlo1',
+                        icon: 'network-wireless-symbolic',
+                        show_graph: true
+                    }
+                ]
             });
             saveConnections(list);
             renderConnections();
