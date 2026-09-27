@@ -1473,88 +1473,132 @@ export default class SnmpBarExtension extends Extension {
                 titleRow.style = (titleRow.style || '') + ' margin-bottom: 6px;';
             }
 
-            // Orbspeed- bzw. Speedtest-Telemetrie (Heimat- und Remote-Gateways)
-            const sensorKey = conn.id || (conn.orb && (conn.orb.orb_id || conn.orb.name)) || conn.orb_name;
-            const isOrbTesting = this._orbTestingSensors && this._orbTestingSensors.has(sensorKey);
-
-            if (isOrbTesting) {
-                const stRow = new St.BoxLayout({
-                    vertical: false,
-                    y_align: Clutter.ActorAlign.CENTER,
-                    style: 'margin-left: 24px; margin-top: 1px; margin-bottom: 4px;',
-                });
-                const stIcon = new St.Icon({
-                    icon_name: 'emblem-synchronizing-symbolic',
-                    icon_size: 12,
-                    style: `margin-right: 5px; color: ${isDarkMode ? '#3584e4' : '#1c71d8'};`,
-                });
-                const stLabel = new St.Label({
-                    text: `Orbspeed: Messung läuft... (~15s)`,
-                    style: `color: ${isDarkMode ? '#3584e4' : '#1c71d8'}; font-size: 11px; font-weight: 600;`,
-                });
-                stRow.add_child(stIcon);
-                stRow.add_child(stLabel);
-                cardBox.add_child(stRow);
-            } else {
-                let speedData = null;
-                if (conn.orb && conn.orb.download_mbps != null) {
-                    speedData = {
-                        download_mbps: conn.orb.download_mbps,
-                        upload_mbps: conn.orb.upload_mbps,
-                        ping_ms: conn.orb.ping_ms,
-                        timestamp: conn.orb.timestamp || (Date.now() / 1000),
-                    };
-                } else if (cIdx === 0 && this._speedtestResult && this._speedtestResult.status === 'ok') {
-                    speedData = this._speedtestResult;
-                }
-
-                if (speedData) {
+            // 1. Lokale Speedtest-Telemetrie (Heimat-Gateway)
+            if (cIdx === 0) {
+                if (this._isSpeedtesting) {
                     const stRow = new St.BoxLayout({
                         vertical: false,
                         y_align: Clutter.ActorAlign.CENTER,
                         style: 'margin-left: 24px; margin-top: 1px; margin-bottom: 4px;',
                     });
                     const stIcon = new St.Icon({
+                        icon_name: 'emblem-synchronizing-symbolic',
+                        icon_size: 12,
+                        style: `margin-right: 5px; color: ${isDarkMode ? '#3584e4' : '#1c71d8'};`,
+                    });
+                    const stLabel = new St.Label({
+                        text: 'Speedtest: Messung läuft... (~15-20s)',
+                        style: `color: ${isDarkMode ? '#3584e4' : '#1c71d8'}; font-size: 11px; font-weight: 600;`,
+                    });
+                    stRow.add_child(stIcon);
+                    stRow.add_child(stLabel);
+                    cardBox.add_child(stRow);
+                } else if (this._speedtestResult && this._speedtestResult.status === 'ok') {
+                    const st = this._speedtestResult;
+                    const stRow = new St.BoxLayout({
+                        vertical: false,
+                        y_align: Clutter.ActorAlign.CENTER,
+                        style: 'margin-left: 24px; margin-top: 1px; margin-bottom: 4px;',
+                        reactive: true,
+                        can_focus: true,
+                        track_hover: true,
+                    });
+                    const stIcon = new St.Icon({
                         icon_name: 'speedometer-symbolic',
                         icon_size: 12,
                         style: `margin-right: 5px; color: ${textColor}; opacity: 0.7;`,
                     });
-                    const timeAgo = this._formatTimeAgo(speedData.timestamp);
-                    const pingText = speedData.ping_ms ? `${speedData.ping_ms} ms` : '';
+                    const timeAgo = this._formatTimeAgo(st.timestamp);
+                    const pingText = st.ping_ms ? `${st.ping_ms} ms` : '';
                     const metaParts = [];
                     if (pingText) metaParts.push(pingText);
                     if (timeAgo) metaParts.push(timeAgo);
                     const metaStr = metaParts.length > 0 ? ` (${metaParts.join(' · ')})` : '';
                     const stLabel = new St.Label({
-                        text: `Orbspeed: ↓ ${speedData.download_mbps} Mbit · ↑ ${speedData.upload_mbps} Mbit${metaStr}`,
+                        text: `Speedtest: ↓ ${st.download_mbps} Mbit · ↑ ${st.upload_mbps} Mbit${metaStr}`,
                         style: `color: ${textColor}; font-size: 11px; opacity: 0.85; font-weight: 500;`,
                     });
                     stRow.add_child(stIcon);
                     stRow.add_child(stLabel);
 
-                    if (conn.orb || conn.orb_name) {
-                        stRow.reactive = true;
-                        stRow.can_focus = true;
-                        stRow.track_hover = true;
-                        stRow.connect('enter-event', () => { stRow.opacity = 200; });
-                        stRow.connect('leave-event', () => { stRow.opacity = 255; });
-                        stRow.connect('button-press-event', () => {
-                            this._triggerOrbSpeedtest(conn);
-                            return Clutter.EVENT_STOP;
-                        });
-                    }
+                    stRow.connect('enter-event', () => { stRow.opacity = 200; });
+                    stRow.connect('leave-event', () => { stRow.opacity = 255; });
+                    stRow.connect('button-press-event', () => {
+                        this._runSpeedtest();
+                        return Clutter.EVENT_STOP;
+                    });
 
                     cardBox.add_child(stRow);
                 }
             }
 
-            // ORB-Telemetriezeile im Gateway-Kopf (unter Uptime bzw. Orbspeed)
+            // 2. ORB-Hardware-Sensor Telemetrie (Heimat- und Remote-Gateways)
+            const sensorKey = conn.id || (conn.orb && (conn.orb.orb_id || conn.orb.name)) || conn.orb_name;
+            const isOrbTesting = this._orbTestingSensors && this._orbTestingSensors.has(sensorKey);
+
+            if (isOrbTesting) {
+                const orbStRow = new St.BoxLayout({
+                    vertical: false,
+                    y_align: Clutter.ActorAlign.CENTER,
+                    style: 'margin-left: 24px; margin-top: 1px; margin-bottom: 4px;',
+                });
+                const orbStIcon = new St.Icon({
+                    icon_name: 'emblem-synchronizing-symbolic',
+                    icon_size: 12,
+                    style: `margin-right: 5px; color: ${isDarkMode ? '#3584e4' : '#1c71d8'};`,
+                });
+                const orbStLabel = new St.Label({
+                    text: 'Orbspeed: Messung läuft... (~15s)',
+                    style: `color: ${isDarkMode ? '#3584e4' : '#1c71d8'}; font-size: 11px; font-weight: 600;`,
+                });
+                orbStRow.add_child(orbStIcon);
+                orbStRow.add_child(orbStLabel);
+                cardBox.add_child(orbStRow);
+            } else if (conn.orb && conn.orb.download_mbps != null) {
+                const orbSt = conn.orb;
+                const orbStRow = new St.BoxLayout({
+                    vertical: false,
+                    y_align: Clutter.ActorAlign.CENTER,
+                    style: 'margin-left: 24px; margin-top: 1px; margin-bottom: 4px;',
+                    reactive: true,
+                    can_focus: true,
+                    track_hover: true,
+                });
+                const orbStIcon = new St.Icon({
+                    icon_name: 'speedometer-symbolic',
+                    icon_size: 12,
+                    style: `margin-right: 5px; color: ${textColor}; opacity: 0.7;`,
+                });
+                const timeAgo = this._formatTimeAgo(orbSt.timestamp);
+                const pingText = orbSt.ping_ms ? `${orbSt.ping_ms} ms` : '';
+                const metaParts = [];
+                if (pingText) metaParts.push(pingText);
+                if (timeAgo) metaParts.push(timeAgo);
+                const metaStr = metaParts.length > 0 ? ` (${metaParts.join(' · ')})` : '';
+                const orbStLabel = new St.Label({
+                    text: `Orbspeed: ↓ ${orbSt.download_mbps} Mbit · ↑ ${orbSt.upload_mbps} Mbit${metaStr}`,
+                    style: `color: ${textColor}; font-size: 11px; opacity: 0.85; font-weight: 500;`,
+                });
+                orbStRow.add_child(orbStIcon);
+                orbStRow.add_child(orbStLabel);
+
+                orbStRow.connect('enter-event', () => { orbStRow.opacity = 200; });
+                orbStRow.connect('leave-event', () => { orbStRow.opacity = 255; });
+                orbStRow.connect('button-press-event', () => {
+                    this._triggerOrbSpeedtest(conn);
+                    return Clutter.EVENT_STOP;
+                });
+
+                cardBox.add_child(orbStRow);
+            }
+
+            // 3. ORB-Telemetriezeile im Gateway-Kopf (unter Uptime bzw. Speedtest / Orbspeed)
             if (conn.orb && conn.orb.score != null) {
                 const orb = conn.orb;
                 const orbRow = new St.BoxLayout({
                     vertical: false,
                     y_align: Clutter.ActorAlign.CENTER,
-                    style: 'margin-left: 26px; margin-top: 1px; margin-bottom: 6px;',
+                    style: 'margin-left: 24px; margin-top: 1px; margin-bottom: 6px;',
                     reactive: true,
                     can_focus: true,
                     track_hover: true,
@@ -1576,7 +1620,7 @@ export default class SnmpBarExtension extends Extension {
                 }
                 const scoreBadge = new St.Label({
                     text: scoreText,
-                    style: `background-color: ${scoreBg}; color: ${scoreColor}; font-weight: bold; font-size: 10px; border-radius: 4px; padding: 1px 5px; margin-right: 8px;`,
+                    style: `background-color: ${scoreBg}; color: ${scoreColor}; font-weight: bold; font-size: 10px; border-radius: 4px; padding: 1px 4px; margin-right: 8px;`,
                 });
                 orbRow.add_child(scoreBadge);
 
