@@ -457,7 +457,7 @@ def check_ip_reputation(ip, apivoid_key=""):
             pass
 
     is_clean = (len(threats) == 0)
-    summary = "Sauber (Keine Bot-/Blacklist-Meldungen)" if is_clean else f"⚠️ {', '.join(threats)}"
+    summary = "Sauber (Keine Bot-/Blacklist-Meldungen)" if is_clean else f"Gelistet: {', '.join(threats)}"
 
     result = {
         "ip": ip,

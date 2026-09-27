@@ -945,20 +945,34 @@ export default class SnmpBarExtension extends Extension {
                     repRow.add_child(repLbl);
 
                     if (iface.reputation.is_clean) {
+                        const okIcon = new St.Icon({
+                            icon_name: 'emblem-ok-symbolic',
+                            icon_size: 13,
+                            style: `color: ${isDarkMode ? '#33d17a' : '#26a269'}; margin-right: 5px;`,
+                        });
+                        repRow.add_child(okIcon);
+
                         const engineCount = (iface.reputation.engines_checked && iface.reputation.engines_checked.length > 0)
                             ? iface.reputation.engines_checked.length
                             : 5;
                         const repVal = new St.Label({
-                            text: `✓ Sauber (${engineCount} Bot-/Abuse-Filter)`,
+                            text: `Sauber (${engineCount} Bot-/Abuse-Filter)`,
                             style: `color: ${isDarkMode ? '#33d17a' : '#26a269'}; font-weight: bold; font-size: 11px;`,
                         });
                         repRow.add_child(repVal);
                     } else {
+                        const warnIcon = new St.Icon({
+                            icon_name: 'dialog-warning-symbolic',
+                            icon_size: 13,
+                            style: `color: ${isDarkMode ? '#f66151' : '#c01c28'}; margin-right: 5px;`,
+                        });
+                        repRow.add_child(warnIcon);
+
                         const threatText = (iface.reputation.threats && iface.reputation.threats.length > 0)
                             ? iface.reputation.threats.join(', ')
                             : 'Gelistet';
                         const repVal = new St.Label({
-                            text: `⚠️ Gelistet: ${threatText}`,
+                            text: `Gelistet: ${threatText}`,
                             style: `color: ${isDarkMode ? '#f66151' : '#c01c28'}; font-weight: bold; font-size: 11px;`,
                         });
                         repRow.add_child(repVal);
