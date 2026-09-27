@@ -1226,7 +1226,9 @@ export default class SnmpBarExtension extends Extension {
             const cardBox = new St.BoxLayout({
                 style_class: 'snmpbar-card-box',
                 vertical: true,
-                style: `border: 1px solid ${cssCardBorder}; background-color: ${cssCardBg}; border-radius: 8px; padding: 10px 12px; margin: 4px 6px; min-width: 360px; max-width: 440px;`,
+                x_expand: true,
+                x_align: Clutter.ActorAlign.FILL,
+                style: `border: 1px solid ${cssCardBorder}; background-color: ${cssCardBg}; border-radius: 8px; padding: 10px 12px; margin: 4px 6px; min-width: 380px;`,
             });
 
             // 1. Header (Verbindungsname, Host & Uptime)
@@ -1284,10 +1286,13 @@ export default class SnmpBarExtension extends Extension {
                     style: `margin-right: 5px; color: ${textColor}; opacity: 0.7;`,
                 });
                 const timeAgo = this._formatTimeAgo(st.timestamp);
-                const pingText = st.ping_ms ? ` · ${st.ping_ms} ms` : '';
-                const timeText = timeAgo ? ` · ${timeAgo}` : '';
+                const pingText = st.ping_ms ? `${st.ping_ms} ms` : '';
+                const metaParts = [];
+                if (pingText) metaParts.push(pingText);
+                if (timeAgo) metaParts.push(timeAgo);
+                const metaStr = metaParts.length > 0 ? ` (${metaParts.join(' · ')})` : '';
                 const stLabel = new St.Label({
-                    text: `Speedtest: ↓ ${st.download_mbps} Mbit · ↑ ${st.upload_mbps} Mbit (${st.cli_type || 'Ookla'}${pingText}${timeText})`,
+                    text: `Speedtest: ↓ ${st.download_mbps} Mbit · ↑ ${st.upload_mbps} Mbit${metaStr}`,
                     style: `color: ${textColor}; font-size: 11px; opacity: 0.85; font-weight: 500;`,
                 });
                 stRow.add_child(stIcon);

@@ -138,8 +138,7 @@
 
 /* Card Container für Standorte */
 .snmpbar-card-box {
-    min-width: 360px;
-    max-width: 440px;
+    min-width: 380px;
     padding: 10px 12px;
     margin: 4px 6px;
     border-radius: 8px;
