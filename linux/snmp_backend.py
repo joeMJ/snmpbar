@@ -687,6 +687,7 @@ def poll_connections(connections):
             lancom_peers = {}
             if is_online:
                 lancom_peers = fetch_lancom_peer_details(host, community, version=version)
+            used_peers = set()
         
             for iface in ifaces:
                 idx = iface["index"]
@@ -723,14 +724,10 @@ def poll_connections(connections):
                         rx_bps = rx_bytes_sec * 8.0
                         tx_bps = tx_bytes_sec * 8.0
 
-                # Online-Erkennung:
-                # 1. Standard ifOperStatus == 1 (up) -> Online
-                # 2. Wenn aktiver Durchsatz gemessen wird (rx_bps > 50 oder tx_bps > 50) -> Online (z.B. WAN-Bridges wie XDSL-1)
-                is_up = (oper_raw == 1) or (rx_bps > 50 or tx_bps > 50)
-
                 # Leitungs-Laufzeit, WAN-IP, CGNAT, Sync & QoS ermitteln
                 iface_uptime_str = ""
                 matched_peer = None
+                matched_peer_name = None
                 alias_snmp = str(snmp_data.get(f"1.3.6.1.2.1.31.1.1.1.18.{idx}", "")).upper()
                 name_snmp = str(snmp_data.get(f"1.3.6.1.2.1.31.1.1.1.1.{idx}", "")).upper()
                 descr_snmp = str(snmp_data.get(f"1.3.6.1.2.1.2.2.1.2.{idx}", "")).upper()
@@ -738,17 +735,36 @@ def poll_connections(connections):
                 user_id = str(iface.get("id", "")).upper()
                 tokens = [alias_snmp, name_snmp, descr_snmp, user_name, user_id]
 
-                # 1. Lancom Peer Match
+                # 1. Lancom Peer Match nach Name (nur unvergebene Peers)
                 for p_name, p_data in lancom_peers.items():
+                    if p_name in used_peers:
+                        continue
                     if any(p_name and (p_name in tok or tok in p_name) for tok in tokens if tok):
                         matched_peer = p_data
+                        matched_peer_name = p_name
                         break
                 
                 # Fallback bei Single-Interface Routern mit 1 WAN-Peer (z.B. Standort / Standort)
                 if not matched_peer and len(lancom_peers) == 1 and len(ifaces) == 1:
-                    matched_peer = next(iter(lancom_peers.values()))
-                elif not matched_peer and "INTERNET" in lancom_peers and any("DSL" in tok or "WAN" in tok or "FIBER" in tok or "GLAS" in tok for tok in tokens if tok):
-                    matched_peer = lancom_peers["INTERNET"]
+                    first_k, first_v = next(iter(lancom_peers.items()))
+                    if first_k not in used_peers:
+                        matched_peer = first_v
+                        matched_peer_name = first_k
+                elif not matched_peer and "INTERNET" in lancom_peers and "INTERNET" not in used_peers:
+                    # "INTERNET" nur zuweisen, wenn Schnittstelle explizit DSL/VDSL/WAN ist (nicht generic Glas/Fiber)
+                    if any(k in tok for tok in tokens for k in ["DSL", "VDSL", "INTERNET", "WAN"]):
+                        matched_peer = lancom_peers["INTERNET"]
+                        matched_peer_name = "INTERNET"
+
+                if matched_peer_name:
+                    used_peers.add(matched_peer_name)
+
+                # Online-Erkennung:
+                # 1. Standard ifOperStatus == 1 (up) -> Online
+                # 2. Reales Datenaufkommen (rx_bps > 50 oder tx_bps > 50) -> Online (z.B. WAN-Bridges wie XDSL-1)
+                # 3. Wenn ein zugeordneter aktiver Lancom-Peer mit echter Uptime/IP vorliegt -> Online
+                has_active_peer = bool(matched_peer and (matched_peer.get("uptime") or matched_peer.get("ip")))
+                is_up = (oper_raw == 1) or (rx_bps > 50 or tx_bps > 50) or has_active_peer
 
                 ext_ip = ""
                 is_cgnat = False
@@ -765,34 +781,36 @@ def poll_connections(connections):
                 high_speed_raw = snmp_data.get(f"1.3.6.1.2.1.31.1.1.1.15.{idx}", 0) or 0
                 speed_mbps = float(high_speed_raw) if high_speed_raw > 0 else round(speed_raw / 1_000_000.0, 1)
 
-                if matched_peer:
-                    if is_up:
+                if is_up:
+                    if matched_peer:
                         iface_uptime_str = matched_peer.get("uptime", "")
-                    ext_ip = matched_peer.get("ip", "")
-                    is_cgnat = matched_peer.get("is_cgnat", False)
-                    ip_type = matched_peer.get("ip_type", "")
-                    dns_servers = matched_peer.get("dns", [])
-                    sync_rx = matched_peer.get("max_rx_kbit", 0)
-                    sync_tx = matched_peer.get("max_tx_kbit", 0)
-                    shaper_rx = matched_peer.get("shaper_rx_kbit", 0)
-                    shaper_tx = matched_peer.get("shaper_tx_kbit", 0)
+                        ext_ip = matched_peer.get("ip", "")
+                        is_cgnat = matched_peer.get("is_cgnat", False)
+                        ip_type = matched_peer.get("ip_type", "")
+                        dns_servers = matched_peer.get("dns", [])
+                        sync_rx = matched_peer.get("max_rx_kbit", 0)
+                        sync_tx = matched_peer.get("max_tx_kbit", 0)
+                        shaper_rx = matched_peer.get("shaper_rx_kbit", 0)
+                        shaper_tx = matched_peer.get("shaper_tx_kbit", 0)
 
-                if sync_rx > 0 and sync_tx > 0:
-                    sync_str = f"↓ {sync_rx / 1000.0:.1f} Mbit · ↑ {sync_tx / 1000.0:.1f} Mbit"
-                elif speed_mbps > 0:
-                    sync_str = f"Sync: {speed_mbps:.1f} Mbit"
+                    if sync_rx > 0 and sync_tx > 0:
+                        sync_str = f"↓ {sync_rx / 1000.0:.1f} Mbit · ↑ {sync_tx / 1000.0:.1f} Mbit"
+                    elif speed_mbps > 0:
+                        sync_str = f"Sync: {speed_mbps:.1f} Mbit"
 
-                if shaper_rx > 0 and shaper_tx > 0:
-                    qos_str = f"↓ {shaper_rx / 1000.0:.1f} Mbit · ↑ {shaper_tx / 1000.0:.1f} Mbit"
+                    if shaper_rx > 0 and shaper_tx > 0:
+                        qos_str = f"↓ {shaper_rx / 1000.0:.1f} Mbit · ↑ {shaper_tx / 1000.0:.1f} Mbit"
 
-                # 2. Standard MIB-2 Fallback via ifLastChange oder sysUpTime
-                if is_up and not iface_uptime_str and uptime_ticks:
-                    last_chg = snmp_data.get(f"1.3.6.1.2.1.2.2.1.9.{idx}", 0)
-                    if last_chg and last_chg > 0 and uptime_ticks > last_chg:
-                        diff = uptime_ticks - last_chg
-                        iface_uptime_str = f"seit {format_uptime(diff)}"
-                    elif uptime_str:
-                        iface_uptime_str = f"seit {uptime_str}"
+                    # 2. Standard MIB-2 Fallback via ifLastChange oder sysUpTime
+                    if not iface_uptime_str and uptime_ticks:
+                        last_chg = snmp_data.get(f"1.3.6.1.2.1.2.2.1.9.{idx}", 0)
+                        if last_chg and last_chg > 0 and uptime_ticks > last_chg:
+                            diff = uptime_ticks - last_chg
+                            iface_uptime_str = f"seit {format_uptime(diff)}"
+                        elif uptime_str:
+                            iface_uptime_str = f"seit {uptime_str}"
+                else:
+                    iface_uptime_str = ""
                         
                 if is_up or rx_bps > 0 or tx_bps > 0:
                     total_rx_bps += rx_bps

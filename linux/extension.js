@@ -821,7 +821,14 @@ export default class SnmpBarExtension extends Extension {
         sidecar.add_child(headerRow);
 
         // 2. Leitungs- & Netzwerk-Details (Telemetry Box)
-        const hasDetails = iface && (iface.external_ip || (iface.dns_servers && iface.dns_servers.length > 0) || iface.sync_formatted || iface.qos_formatted || iface.ip_type === 'Lokal');
+        const hasDetails = iface && (
+            (iface.is_up && iface.external_ip) ||
+            !iface.is_up ||
+            (iface.is_up && iface.dns_servers && iface.dns_servers.length > 0) ||
+            (iface.is_up && iface.sync_formatted) ||
+            (iface.is_up && iface.qos_formatted) ||
+            iface.ip_type === 'Lokal'
+        );
 
         if (hasDetails) {
             const detailBox = new St.BoxLayout({
@@ -829,8 +836,8 @@ export default class SnmpBarExtension extends Extension {
                 style: `background-color: ${badgeBg}; border: 1px solid ${detailBorder}; border-radius: 8px; padding: 8px 12px; margin-top: 8px; margin-bottom: 8px;`,
             });
 
-            // Externe WAN-IP & CGNAT / Public Badge
-            if (iface.external_ip) {
+            // Externe WAN-IP & CGNAT / Public Badge oder Offline-Hinweis
+            if (iface.is_up && iface.external_ip) {
                 const ipRow = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER, style: 'margin-bottom: 3px;' });
                 const ipLbl = new St.Label({
                     text: 'Externe IP:  ',
@@ -852,10 +859,23 @@ export default class SnmpBarExtension extends Extension {
                 });
                 ipRow.add_child(cgnatBadge);
                 detailBox.add_child(ipRow);
+            } else if (!iface.is_up && iface.ip_type !== 'Lokal') {
+                const ipRow = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER, style: 'margin-bottom: 3px;' });
+                const ipLbl = new St.Label({
+                    text: 'Externe IP:  ',
+                    style: `color: ${mutedColor}; font-weight: 600; font-size: 11px;`,
+                });
+                const ipVal = new St.Label({
+                    text: 'Offline (keine Verbindung)',
+                    style: `color: ${isDarkMode ? '#f66151' : '#c01c28'}; font-weight: 600; font-size: 11px;`,
+                });
+                ipRow.add_child(ipLbl);
+                ipRow.add_child(ipVal);
+                detailBox.add_child(ipRow);
             }
 
-            // DNS-Server
-            if (iface.dns_servers && iface.dns_servers.length > 0) {
+            // DNS-Server (nur anzeigen wenn Interface Online ist)
+            if (iface.is_up && iface.dns_servers && iface.dns_servers.length > 0) {
                 const dnsRow = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER, style: 'margin-bottom: 3px;' });
                 const dnsLbl = new St.Label({
                     text: 'DNS:  ',
@@ -870,8 +890,8 @@ export default class SnmpBarExtension extends Extension {
                 detailBox.add_child(dnsRow);
             }
 
-            // Sync-Aushandlung
-            if (iface.sync_formatted) {
+            // Sync-Aushandlung (nur wenn Online)
+            if (iface.is_up && iface.sync_formatted) {
                 const syncRow = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER, style: 'margin-bottom: 3px;' });
                 const syncLbl = new St.Label({
                     text: 'Sync-Leitung:  ',
@@ -886,8 +906,8 @@ export default class SnmpBarExtension extends Extension {
                 detailBox.add_child(syncRow);
             }
 
-            // QoS-Aushandlung (BNG/BRAS Shaper)
-            if (iface.qos_formatted) {
+            // QoS-Aushandlung (BNG/BRAS Shaper) (nur wenn Online)
+            if (iface.is_up && iface.qos_formatted) {
                 const qosRow = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER, style: 'margin-bottom: 2px;' });
                 const qosLbl = new St.Label({
                     text: 'QoS-Aushandlung:  ',
