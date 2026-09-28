@@ -355,6 +355,32 @@ export default class SnmpBarExtension extends Extension {
             } catch (e) {}
         }
 
+        this._speedtestHistory = {};
+        const savedHist = this._getStr('speedtest-history', '{}');
+        if (savedHist) {
+            try {
+                this._speedtestHistory = JSON.parse(savedHist);
+            } catch (e) {}
+        }
+        // Initial-Seeding: Falls Historie für gespeicherte Ergebnisse noch leer ist, initial befüllen
+        if (this._speedtestResult && this._speedtestResult.status === 'ok') {
+            const defaultConnId = 'conn_1';
+            if (!this._speedtestHistory[defaultConnId] || this._speedtestHistory[defaultConnId].length === 0) {
+                this._speedtestHistory[defaultConnId] = [{
+                    timestamp: this._speedtestResult.timestamp || Math.floor(Date.now() / 1000),
+                    source: 'lokal',
+                    download_mbps: this._speedtestResult.download_mbps,
+                    upload_mbps: this._speedtestResult.upload_mbps,
+                    ping_ms: this._speedtestResult.ping_ms,
+                }];
+                if (this._settings) {
+                    try {
+                        this._settings.set_string('speedtest-history', JSON.stringify(this._speedtestHistory));
+                    } catch (e) {}
+                }
+            }
+        }
+
         // Dark-Mode Erkennung über GNOME Interface Settings
         try {
             this._interfaceSettings = new Gio.Settings({ schema_id: 'org.gnome.desktop.interface' });
@@ -376,6 +402,13 @@ export default class SnmpBarExtension extends Extension {
                 this._updateColors();
             } else if (key === 'unit-display' || key === 'bar-unit-format') {
                 this._applyLayoutClasses();
+            } else if (key === 'speedtest-history') {
+                const updatedHist = this._getStr('speedtest-history', '{}');
+                try {
+                    this._speedtestHistory = JSON.parse(updatedHist);
+                } catch (e) {
+                    this._speedtestHistory = {};
+                }
             }
             this._schedulePoll(1);
         });
@@ -421,10 +454,52 @@ export default class SnmpBarExtension extends Extension {
         this._isSpeedtesting = false;
         this._speedtestResult = null;
         this._orbSpeedResults = null;
+        this._speedtestHistory = null;
         this._speedtestMenuItem = null;
         this._orbTestingSensors = null;
         this._settings = null;
         console.log(`[snmpbar] Extension ${this.uuid} deaktiviert.`);
+    }
+
+    _formatHistoryDate(ts) {
+        if (!ts) return '--';
+        try {
+            const date = new Date(ts * 1000);
+            const now = new Date();
+            const isToday = date.toDateString() === now.toDateString();
+            const hours = String(date.getHours()).padStart(2, '0');
+            const mins = String(date.getMinutes()).padStart(2, '0');
+            if (isToday) {
+                return `Heute ${hours}:${mins}`;
+            }
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            return `${day}.${month}. ${hours}:${mins}`;
+        } catch (e) {
+            return '--';
+        }
+    }
+
+    _addSpeedtestRecord(connId, record) {
+        if (!connId || !record) return;
+        const maxLimit = Math.max(1, Math.min(10, this._getInt('speedtest-history-max', 10)));
+        if (!this._speedtestHistory) {
+            this._speedtestHistory = {};
+        }
+        if (!Array.isArray(this._speedtestHistory[connId])) {
+            this._speedtestHistory[connId] = [];
+        }
+        this._speedtestHistory[connId].unshift(record);
+        if (this._speedtestHistory[connId].length > maxLimit) {
+            this._speedtestHistory[connId] = this._speedtestHistory[connId].slice(0, maxLimit);
+        }
+        if (this._settings) {
+            try {
+                this._settings.set_string('speedtest-history', JSON.stringify(this._speedtestHistory));
+            } catch (e) {
+                console.error(`[snmpbar] Fehler beim Speichern der Speedtest-Historie: ${e}`);
+            }
+        }
     }
 
     _formatTimeAgo(timestamp) {
@@ -482,6 +557,16 @@ export default class SnmpBarExtension extends Extension {
                             if (this._settings) {
                                 this._settings.set_string('speedtest-result', JSON.stringify(result));
                             }
+                            const homeConnId = (this._lastData && this._lastData.connections && this._lastData.connections[0])
+                                ? (this._lastData.connections[0].id || 'conn_1')
+                                : 'conn_1';
+                            this._addSpeedtestRecord(homeConnId, {
+                                timestamp: result.timestamp || Math.floor(Date.now() / 1000),
+                                source: 'lokal',
+                                download_mbps: result.download_mbps,
+                                upload_mbps: result.upload_mbps,
+                                ping_ms: result.ping_ms,
+                            });
                         } else if (result && result.message) {
                             console.warn(`[snmpbar] Speedtest-Warnung: ${result.message}`);
                         }
@@ -600,6 +685,14 @@ export default class SnmpBarExtension extends Extension {
                             if (this._settings) {
                                 this._settings.set_string('orb-speedtest-results', JSON.stringify(this._orbSpeedResults));
                             }
+
+                            this._addSpeedtestRecord(conn.id || 'conn_1', {
+                                timestamp: resObj.timestamp,
+                                source: 'orb',
+                                download_mbps: resObj.download_mbps,
+                                upload_mbps: resObj.upload_mbps,
+                                ping_ms: resObj.ping_ms,
+                            });
 
                             Main.osdWindowManager.show(
                                 -1,
@@ -1351,6 +1444,82 @@ export default class SnmpBarExtension extends Extension {
 
             orbBox.add_child(metricsRow);
             sidecar.add_child(orbBox);
+        }
+
+        // 2c. Speedtest-Historie (nur für aggregierte Verbindung oder nicht-aggregierte Standorte)
+        const shouldShowHistory = (!isAggregated || iface === null);
+        const connKey = (conn && conn.id) || 'conn_1';
+        const historyRecords = (shouldShowHistory && this._speedtestHistory)
+            ? (this._speedtestHistory[connKey] || [])
+            : [];
+
+        if (shouldShowHistory && historyRecords.length > 0) {
+            const histBox = new St.BoxLayout({
+                vertical: true,
+                style: `background-color: ${badgeBg}; border: 1px solid ${detailBorder}; border-radius: 8px; padding: 8px 12px; margin-top: 6px; margin-bottom: 8px;`,
+            });
+
+            // Header-Zeile: Speedometer Icon + Titel
+            const histHeadRow = new St.BoxLayout({ vertical: false, y_align: Clutter.ActorAlign.CENTER, style: 'margin-bottom: 6px;' });
+            const histIcon = new St.Icon({
+                icon_name: 'speedometer-symbolic',
+                icon_size: 13,
+                style: `color: ${sectionColor}; margin-right: 5px;`,
+            });
+            const histTitle = new St.Label({
+                text: `Letzte Geschwindigkeitstests (${historyRecords.length})`,
+                style: `color: ${sectionColor}; font-weight: 700; font-size: 11px;`,
+            });
+            histHeadRow.add_child(histIcon);
+            histHeadRow.add_child(histTitle);
+            histBox.add_child(histHeadRow);
+
+            // Einträge
+            historyRecords.forEach((rec, idx) => {
+                const recRow = new St.BoxLayout({
+                    vertical: false,
+                    y_align: Clutter.ActorAlign.CENTER,
+                    style: idx < historyRecords.length - 1 ? 'margin-bottom: 4px;' : '',
+                });
+
+                // 1. Datum / Zeit
+                const dateStr = this._formatHistoryDate(rec.timestamp);
+                const dateLbl = new St.Label({
+                    text: `${dateStr}  `,
+                    style: `color: ${mutedColor}; font-size: 11px; margin-right: 6px;`,
+                });
+                recRow.add_child(dateLbl);
+
+                // 2. Quelle Badge [Lokal] oder [ORB]
+                const isOrb = rec.source === 'orb';
+                const badgeText = isOrb ? 'ORB' : 'Lokal';
+                const badgeColor = isOrb
+                    ? (isDarkMode ? '#c061cb' : '#9141ac')
+                    : (isDarkMode ? '#62a0ea' : '#1c71d8');
+                const badgeBgColor = isOrb
+                    ? (isDarkMode ? 'rgba(192, 97, 203, 0.18)' : 'rgba(145, 65, 172, 0.12)')
+                    : (isDarkMode ? 'rgba(98, 160, 234, 0.18)' : 'rgba(28, 113, 216, 0.12)');
+
+                const srcBadge = new St.Label({
+                    text: ` ${badgeText} `,
+                    style: `color: ${badgeColor}; background-color: ${badgeBgColor}; border-radius: 4px; font-weight: bold; font-size: 10px; margin-right: 8px; padding: 1px 4px;`,
+                });
+                recRow.add_child(srcBadge);
+
+                // 3. Ergebnis
+                const dlFmt = rec.download_mbps != null ? `${rec.download_mbps} Mbit` : '--';
+                const ulFmt = rec.upload_mbps != null ? `${rec.upload_mbps} Mbit` : '--';
+                const pingFmt = rec.ping_ms ? ` (${rec.ping_ms} ms)` : '';
+                const resLbl = new St.Label({
+                    text: `↓ ${dlFmt} · ↑ ${ulFmt}${pingFmt}`,
+                    style: `color: ${sectionColor}; font-weight: 500; font-size: 11px;`,
+                });
+                recRow.add_child(resLbl);
+
+                histBox.add_child(recRow);
+            });
+
+            sidecar.add_child(histBox);
         }
 
         // 3. Download Graph

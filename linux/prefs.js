@@ -1154,6 +1154,40 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         });
         speedtestGroup.add(stInfoRow);
 
+        const maxHistoryRow = new Adw.SpinRow({
+            title: _('Historie im Flyover (Max. Messungen)'),
+            subtitle: _('Anzahl der letzten Speedtest-Ergebnisse im Detailfenster (1 bis 10)'),
+            adjustment: new Gtk.Adjustment({
+                lower: 1,
+                upper: 10,
+                step_increment: 1,
+                page_increment: 1,
+                value: settings.get_int('speedtest-history-max') || 10,
+            }),
+        });
+        maxHistoryRow.connect('changed', () => {
+            settings.set_int('speedtest-history-max', maxHistoryRow.get_value());
+        });
+        speedtestGroup.add(maxHistoryRow);
+
+        const clearHistoryRow = new Adw.ActionRow({
+            title: _('Speedtest-Verlauf leeren'),
+            subtitle: _('Löscht alle gespeicherten Messungen sicher und vollständig aus dem Cache'),
+        });
+        const clearBtn = new Gtk.Button({
+            icon_name: 'user-trash-symbolic',
+            valign: Gtk.Align.CENTER,
+            tooltip_text: _('Verlauf löschen'),
+            css_classes: ['destructive-action'],
+        });
+        clearBtn.connect('clicked', () => {
+            settings.set_string('speedtest-history', '{}');
+            clearBtn.set_sensitive(false);
+            clearHistoryRow.set_subtitle(_('Verlauf wurde erfolgreich geleert.'));
+        });
+        clearHistoryRow.add_suffix(clearBtn);
+        speedtestGroup.add(clearHistoryRow);
+
         // Gruppe 3: ORB Cloud Integration
         const orbGroup = new Adw.PreferencesGroup({
             title: _('ORB Cloud Integration (orb.net)'),
