@@ -291,5 +291,11 @@
       <description>Zeitfenster für die Berechnung der ORB-Scores: '24h', '1h', '5m', '1m'.</description>
     </key>
 
+    <key name="orb-speedtest-results" type="s">
+      <default>'{}'</default>
+      <summary>Letzte ORB Speedtest Ergebnisse pro Sensor</summary>
+      <description>JSON-Map der manuell per Klick ausgeführten ORB-Speedtests pro Standort/Sensor.</description>
+    </key>
+
   </schema>
 </schemalist>

@@ -621,44 +621,6 @@ def extract_orb_metrics(dev, timespan="24h"):
             bv = b_comp["score"]
             speed = round(bv if bv > 1 else bv * 100)
 
-    # Letzte gemessene Bandbreite (Orbspeed) & Latenz
-    bw_source = None
-    if isinstance(orb_scores, list):
-        for dur in [60000, 300000, target_duration]:
-            for s in orb_scores:
-                if s.get("duration_ms") == dur:
-                    comps = s.get("components") or {}
-                    b_sub = (comps.get("bandwidth_score") or {}).get("components") or {}
-                    if "download_bandwidth_kbps" in b_sub:
-                        bw_source = s
-                        break
-            if bw_source:
-                break
-        if not bw_source and orb_scores:
-            bw_source = orb_scores[0]
-
-    dl_mbps = None
-    ul_mbps = None
-    ping_ms = None
-    if bw_source:
-        comps = bw_source.get("components") or {}
-        b_sub = (comps.get("bandwidth_score") or {}).get("components") or {}
-        dl_obj = b_sub.get("download_bandwidth_kbps") or {}
-        if "value" in dl_obj and dl_obj["value"] is not None:
-            dl_mbps = round(dl_obj["value"] / 1000.0, 1)
-
-        ul_obj = b_sub.get("upload_bandwidth_kbps") or {}
-        if "value" in ul_obj and ul_obj["value"] is not None:
-            ul_mbps = round(ul_obj["value"] / 1000.0, 1)
-
-        r_sub = (comps.get("responsiveness_score") or {}).get("components") or {}
-        lag_obj = r_sub.get("internet_lag_us") or {}
-        if "value" in lag_obj and lag_obj["value"] is not None:
-            ping_ms = round(lag_obj["value"] / 1000.0, 1)
-
-    created_ts = raw.get("created_ts")
-    ts_sec = round(created_ts / 1000.0) if created_ts else None
-
     tags = raw.get("tags") or {}
     geoip = tags.get("geoip") or {}
     isp = geoip.get("isp_name") or raw.get("isp") or dev.get("isp") or ""
@@ -675,14 +637,49 @@ def extract_orb_metrics(dev, timespan="24h"):
         "responsiveness": resp,
         "reliability": reliab,
         "speed": speed,
-        "download_mbps": dl_mbps,
-        "upload_mbps": ul_mbps,
-        "ping_ms": ping_ms,
-        "timestamp": ts_sec,
         "isp": isp,
         "location": location,
         "raw_summary": raw
     }
+
+def extract_orb_bandwidth(dev):
+    """Extrahiert Bandbreite (Mbit/s) und Latenz aus einer ORB-Zusammenfassung (nur nach explizitem Speedtest)."""
+    raw = dev.get("raw_summary") or dev.get("summary") or {}
+    orb_scores = raw.get("orb_scores") or []
+
+    bw_source = None
+    if isinstance(orb_scores, list):
+        for dur in [60000, 300000, 3600000, 86400000]:
+            for s in orb_scores:
+                if s.get("duration_ms") == dur:
+                    comps = s.get("components") or {}
+                    b_sub = (comps.get("bandwidth_score") or {}).get("components") or {}
+                    if "download_bandwidth_kbps" in b_sub:
+                        bw_source = s
+                        break
+            if bw_source:
+                break
+        if not bw_source and orb_scores:
+            bw_source = orb_scores[0]
+
+    dl_mbps, ul_mbps, ping_ms = None, None, None
+    if bw_source:
+        comps = bw_source.get("components") or {}
+        b_sub = (comps.get("bandwidth_score") or {}).get("components") or {}
+        dl_obj = b_sub.get("download_bandwidth_kbps") or {}
+        if "value" in dl_obj and dl_obj["value"] is not None:
+            dl_mbps = round(dl_obj["value"] / 1000.0, 1)
+
+        ul_obj = b_sub.get("upload_bandwidth_kbps") or {}
+        if "value" in ul_obj and ul_obj["value"] is not None:
+            ul_mbps = round(ul_obj["value"] / 1000.0, 1)
+
+        r_sub = (comps.get("responsiveness_score") or {}).get("components") or {}
+        lag_obj = r_sub.get("internet_lag_us") or {}
+        if "value" in lag_obj and lag_obj["value"] is not None:
+            ping_ms = round(lag_obj["value"] / 1000.0, 1)
+
+    return dl_mbps, ul_mbps, ping_ms
 
 def fetch_orb_data(orb_token, force=False, timespan="24h"):
     if not orb_token:
@@ -820,33 +817,36 @@ def trigger_orb_speedtest(token, target_sensor):
         try:
             fresh_data = fetch_orb_data(token, force=True)
             for k, v in fresh_data.items():
-                if v.get("orb_id") == orb_id and v.get("download_mbps") is not None:
-                    return {
-                        "status": "ok",
-                        "orb_id": orb_id,
-                        "name": v.get("name"),
-                        "download_mbps": v.get("download_mbps"),
-                        "upload_mbps": v.get("upload_mbps"),
-                        "ping_ms": v.get("ping_ms"),
-                        "timestamp": v.get("timestamp") or round(time.time())
-                    }
+                if v.get("orb_id") == orb_id:
+                    dl, ul, ping = extract_orb_bandwidth(v)
+                    if dl is not None:
+                        return {
+                            "status": "ok",
+                            "orb_id": orb_id,
+                            "name": v.get("name"),
+                            "download_mbps": dl,
+                            "upload_mbps": ul,
+                            "ping_ms": ping,
+                            "timestamp": round(time.time())
+                        }
         except Exception:
             pass
 
     fresh_data = fetch_orb_data(token, force=True)
     for k, v in fresh_data.items():
         if v.get("orb_id") == orb_id:
+            dl, ul, ping = extract_orb_bandwidth(v)
             return {
                 "status": "ok",
                 "orb_id": orb_id,
                 "name": v.get("name"),
-                "download_mbps": v.get("download_mbps"),
-                "upload_mbps": v.get("upload_mbps"),
-                "ping_ms": v.get("ping_ms"),
-                "timestamp": v.get("timestamp") or round(time.time())
+                "download_mbps": dl,
+                "upload_mbps": ul,
+                "ping_ms": ping,
+                "timestamp": round(time.time())
             }
 
-    return {"status": "ok", "orb_id": orb_id}
+    return {"status": "ok", "orb_id": orb_id, "timestamp": round(time.time())}
 
 def fetch_lancom_peer_details(host, community, version=1):
     peers = {}
