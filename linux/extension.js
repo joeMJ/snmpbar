@@ -1232,7 +1232,14 @@ export default class SnmpBarExtension extends Extension {
         }
 
         // 2b. ORB Experience Card (falls ORB-Telemetrie für die Verbindung vorhanden ist)
-        if (conn && conn.orb) {
+        // Regel: Wenn Verbindung aggregiert ist, nur in der aggregierten Gesamtverbindung (iface === null) anzeigen, nicht in Unterverbindungen
+        const ifaces = conn ? (conn.interfaces || []) : [];
+        const isAggregated = typeof conn.show_aggregated === 'boolean'
+            ? conn.show_aggregated
+            : (ifaces.length > 1);
+        const shouldShowOrb = conn && conn.orb && (!isAggregated || iface === null);
+
+        if (shouldShowOrb) {
             const orb = conn.orb;
             const orbBox = new St.BoxLayout({
                 vertical: true,
