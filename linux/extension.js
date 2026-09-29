@@ -12,6 +12,16 @@ import Cairo from 'cairo';
 
 const MAX_HISTORY = 25;
 
+// OSD auf allen Monitoren: GNOME >= 48 nutzt showAll(), 45–47 show(-1, ...)
+function showOsd(iconName, label) {
+    const osd = Main.osdWindowManager;
+    const icon = Gio.Icon.new_for_string(iconName);
+    if (typeof osd.showAll === 'function')
+        osd.showAll(icon, label);
+    else
+        osd.show(-1, icon, label);
+}
+
 function getNiceScaleMax(maxVal) {
     if (maxVal <= 0) maxVal = 10000;
     const steps = [
@@ -520,7 +530,7 @@ export default class SnmpBarExtension extends Extension {
         try {
             St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, text);
             try {
-                Main.osdWindowManager.show(-1, Gio.Icon.new_for_string('edit-copy-symbolic'), `${label}: ${text}`);
+                showOsd('edit-copy-symbolic', `${label}: ${text}`);
             } catch (e) {
                 Main.notify('snmpbar', `${label}: ${text}`);
             }
@@ -632,11 +642,7 @@ export default class SnmpBarExtension extends Extension {
             this._buildMenu(this._lastData);
         }
 
-        Main.osdWindowManager.show(
-            -1,
-            Gio.Icon.new_for_string('speedometer-symbolic'),
-            `Orbspeed: Messung auf „${conn.name}“ gestartet...`
-        );
+        showOsd('speedometer-symbolic', `Orbspeed: Messung auf „${conn.name}“ gestartet...`);
 
         try {
             const proc = Gio.Subprocess.new(
@@ -694,11 +700,7 @@ export default class SnmpBarExtension extends Extension {
                                 ping_ms: resObj.ping_ms,
                             });
 
-                            Main.osdWindowManager.show(
-                                -1,
-                                Gio.Icon.new_for_string('speedometer-symbolic'),
-                                `Orbspeed ${conn.name}: ↓ ${parsed.download_mbps || '--'} Mbit · ↑ ${parsed.upload_mbps || '--'} Mbit`
-                            );
+                            showOsd('speedometer-symbolic', `Orbspeed ${conn.name}: ↓ ${parsed.download_mbps || '--'} Mbit · ↑ ${parsed.upload_mbps || '--'} Mbit`);
                         } else if (parsed && parsed.message) {
                             Main.notify(_('Orbspeed Fehler'), parsed.message);
                         }
@@ -1983,7 +1985,7 @@ export default class SnmpBarExtension extends Extension {
                             this._copyToClipboard(ipToCopy, 'IP kopiert');
                         } else {
                             try {
-                                Main.osdWindowManager.show(-1, Gio.Icon.new_for_string('network-offline-symbolic'), 'Keine IP vorhanden');
+                                showOsd('network-offline-symbolic', 'Keine IP vorhanden');
                             } catch (e) {}
                         }
                         return Clutter.EVENT_STOP;
@@ -2099,7 +2101,7 @@ export default class SnmpBarExtension extends Extension {
                                 this._copyToClipboard(ipToCopy, 'IP kopiert');
                             } else {
                                 try {
-                                    Main.osdWindowManager.show(-1, Gio.Icon.new_for_string('network-offline-symbolic'), 'Keine externe IP vorhanden');
+                                    showOsd('network-offline-symbolic', 'Keine externe IP vorhanden');
                                 } catch (e) {}
                             }
                             return Clutter.EVENT_STOP;
