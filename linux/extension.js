@@ -2247,10 +2247,6 @@ export default class SnmpBarExtension extends Extension {
             menu.addMenuItem(lockedItem);
         }
 
-        const refreshItem = new PopupMenu.PopupImageMenuItem('Messwerte neu abfragen', 'view-refresh-symbolic');
-        refreshItem.connect('activate', () => this._pollNow());
-        menu.addMenuItem(refreshItem);
-
         const prefsItem = new PopupMenu.PopupImageMenuItem('Einstellungen...', 'preferences-system-symbolic');
         prefsItem.connect('activate', () => this.openPreferences());
         menu.addMenuItem(prefsItem);
