@@ -37,3 +37,17 @@ dist/
 
 # Logs
 *.log
+
+# Zugangsdaten & lokale Konfiguration (nie committen)
+*.env
+secrets.*
+*.dconf
+dconf-*.ini
+.claude/settings.local.json
+
+# Signaturschlüssel (z. B. Windows-Build)
+*.pfx
+*.snk
+
+# Sonstiges
+.DS_Store

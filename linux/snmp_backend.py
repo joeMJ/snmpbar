@@ -1283,7 +1283,7 @@ def poll_connections(connections, enable_reputation=True, apivoid_key="", orb_to
                         matched_peer_name = p_name
                         break
                 
-                # Fallback bei Single-Interface Routern mit 1 WAN-Peer (z.B. Standort / Standort)
+                # Fallback bei Single-Interface Routern mit 1 WAN-Peer (z. B. Router mit nur einer WAN-Verbindung)
                 if not matched_peer and len(lancom_peers) == 1 and len(ifaces) == 1:
                     first_k, first_v = next(iter(lancom_peers.items()))
                     if first_k not in used_peers:
