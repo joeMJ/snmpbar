@@ -5,6 +5,7 @@ import Gdk from 'gi://Gdk';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import * as Secrets from './secrets.js';
+import { UpdateChecker, INSTALL_COMMAND, REPO_URL, launchInTerminal } from './updater.js';
 
 export default class SnmpBarPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
@@ -1338,6 +1339,80 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
             subtitle: _('Nach dem Laden der Sensoren können diese im Reiter „SNMP & Schnittstellen“ direkt per Auswahlliste dem jeweiligen Gateway zugeordnet werden.'),
         });
         orbGroup.add(orbInfoRow);
+
+        // ==========================================
+        // Reiter: Updates
+        // ==========================================
+        const updatePage = new Adw.PreferencesPage({
+            title: _('Updates'),
+            icon_name: 'software-update-available-symbolic',
+        });
+        window.add(updatePage);
+
+        const updateGroup = new Adw.PreferencesGroup({
+            title: _('Aktualitätsprüfung'),
+            description: `${_('Versionsabgleich über GitHub')} (${REPO_URL.replace('https://', '')})`,
+        });
+        updatePage.add(updateGroup);
+
+        const updateEnableRow = new Adw.SwitchRow({
+            title: _('Automatische Versionsprüfung'),
+            subtitle: _('Ruft regelmäßig die metadata.json auf GitHub ab und zeigt im Menü einen Hinweis bei neuer Version'),
+        });
+        settings.bind('update-check-enabled', updateEnableRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        updateGroup.add(updateEnableRow);
+
+        const installedVersion = Number(this.metadata.version) || 1;
+        const installedName = this.metadata['version-name'] ?? String(installedVersion);
+
+        const versionRow = new Adw.ActionRow({
+            title: `${_('Installierte Version')}: v${installedName}`,
+            subtitle: _('Noch nicht geprüft'),
+        });
+        const checkBtn = new Gtk.Button({ label: _('Jetzt prüfen'), valign: Gtk.Align.CENTER });
+        versionRow.add_suffix(checkBtn);
+        updateGroup.add(versionRow);
+
+        const installRow = new Adw.ActionRow({
+            title: _('Update installieren'),
+            subtitle: INSTALL_COMMAND,
+            subtitle_selectable: true,
+        });
+        const installBtn = new Gtk.Button({
+            label: _('Jetzt aktualisieren'),
+            valign: Gtk.Align.CENTER,
+            css_classes: ['suggested-action'],
+            sensitive: false,
+        });
+        installBtn.connect('clicked', () => {
+            const error = launchInTerminal(
+                `${INSTALL_COMMAND}; echo; read -r -p 'Fertig – danach ab- und wieder anmelden. Enter schließt das Fenster.'`);
+            if (error)
+                installRow.subtitle = `${error} – ${_('bitte manuell ausführen')}: ${INSTALL_COMMAND}`;
+        });
+        installRow.add_suffix(installBtn);
+        updateGroup.add(installRow);
+
+        const updateChecker = new UpdateChecker(installedVersion);
+        const runUpdateCheck = async () => {
+            checkBtn.sensitive = false;
+            versionRow.subtitle = _('Prüfe …');
+            const st = await updateChecker.checkForUpdates(null);
+            checkBtn.sensitive = true;
+            if (st.error) {
+                versionRow.subtitle = `${_('Prüfung fehlgeschlagen')}: ${st.error}`;
+                installBtn.sensitive = false;
+            } else if (st.updateAvailable) {
+                versionRow.subtitle = `${_('Neue Version verfügbar')}: v${st.remoteVersionName}`;
+                installBtn.sensitive = true;
+            } else {
+                versionRow.subtitle = `${_('Aktuell')} (${_('neueste Version')}: v${st.remoteVersionName})`;
+                installBtn.sensitive = false;
+            }
+        };
+        checkBtn.connect('clicked', runUpdateCheck);
+        if (settings.get_boolean('update-check-enabled'))
+            runUpdateCheck();
 
         // Schlüsselbund laden (in prefs.js darf ein Entsperr-Dialog erscheinen), alte Klartext-Werte migrieren,
         // danach Felder füllen und ORB-Sensoren im Hintergrund vorladen.

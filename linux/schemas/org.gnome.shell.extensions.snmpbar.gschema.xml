@@ -278,6 +278,12 @@
       <description>Nur noch für die einmalige Migration in den GNOME-Schlüsselbund vorhanden. Der Key liegt jetzt im Schlüsselbund (libsecret).</description>
     </key>
 
+    <key name="update-check-enabled" type="b">
+      <default>true</default>
+      <summary>Automatische Versionsprüfung</summary>
+      <description>Ruft regelmäßig die metadata.json auf GitHub ab und zeigt im Menü einen Hinweis, wenn eine neuere Version vorliegt.</description>
+    </key>
+
     <key name="secrets-revision" type="i">
       <default>0</default>
       <summary>Zähler für Änderungen im Schlüsselbund</summary>

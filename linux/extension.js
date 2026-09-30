@@ -10,6 +10,7 @@ import Gio from 'gi://Gio';
 import GObject from 'gi://GObject';
 import Cairo from 'cairo';
 import * as Secrets from './secrets.js';
+import { UpdateChecker } from './updater.js';
 
 const MAX_HISTORY = 25;
 
@@ -351,6 +352,19 @@ export default class SnmpBarExtension extends Extension {
         this._secretsLoading = null;
         this._refreshSecrets();
 
+        // Versionsprüfung (GitHub metadata.json): erste Prüfung kurz nach dem Start, danach alle 6 Stunden
+        this._updateChecker = new UpdateChecker(this.metadata.version || 1);
+        this._updateStatus = null;
+        this._updateCancellable = new Gio.Cancellable();
+        this._updateTimeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 30, () => {
+            this._checkForUpdate();
+            this._updateTimeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 6 * 3600, () => {
+                this._checkForUpdate();
+                return GLib.SOURCE_CONTINUE;
+            });
+            return GLib.SOURCE_REMOVE;
+        });
+
         this._histories = {};
         this._hoverSidecar = null;
         this._sidecarHideTimeout = null;
@@ -473,6 +487,20 @@ export default class SnmpBarExtension extends Extension {
             this._indicator.destroy();
             this._indicator = null;
         }
+
+        if (this._updateTimeoutId) {
+            GLib.source_remove(this._updateTimeoutId);
+            this._updateTimeoutId = null;
+        }
+        if (this._updateCancellable) {
+            this._updateCancellable.cancel();
+            this._updateCancellable = null;
+        }
+        if (this._updateChecker) {
+            this._updateChecker.destroy();
+            this._updateChecker = null;
+        }
+        this._updateStatus = null;
 
         this._secrets = null;
         this._secretsLoading = null;
@@ -737,6 +765,19 @@ export default class SnmpBarExtension extends Extension {
                 this._buildMenu(this._lastData);
             }
         }
+    }
+
+    async _checkForUpdate() {
+        if (!this._updateChecker || !this._getBool('update-check-enabled', true)) {
+            this._updateStatus = null;
+            return;
+        }
+        const status = await this._updateChecker.checkForUpdates(this._updateCancellable);
+        if (!this._updateChecker) return;   // inzwischen deaktiviert
+        const before = this._updateStatus?.updateAvailable;
+        this._updateStatus = status;
+        if (status.updateAvailable !== before && this._lastData)
+            this._buildMenu(this._lastData);
     }
 
     // Lädt Zugangsdaten aus dem Schlüsselbund (ohne Dialog) und migriert ggf. alte Klartext-Werte aus dconf.
@@ -2190,6 +2231,14 @@ export default class SnmpBarExtension extends Extension {
             this._speedtestMenuItem.connect('activate', () => this._runSpeedtest());
         }
         menu.addMenuItem(this._speedtestMenuItem);
+
+        if (this._updateStatus?.updateAvailable) {
+            const updItem = new PopupMenu.PopupImageMenuItem(
+                `Update v${this._updateStatus.remoteVersionName} verfügbar – Einstellungen öffnen`,
+                'software-update-available-symbolic');
+            updItem.connect('activate', () => this.openPreferences());
+            menu.addMenuItem(updItem);
+        }
 
         if (this._secretsLocked && this._secretsMissing) {
             const lockedItem = new PopupMenu.PopupImageMenuItem(

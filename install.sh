@@ -1,47 +1,56 @@
 #!/usr/bin/env bash
+# ==============================================================================
+# snmpbar - Entrypoint
+#
+# Lokal (im Klon):  ./install.sh [--install|--update|--uninstall|--help]
+#                   → delegiert an linux/install.sh
+# Per curl:         curl -fsSL https://raw.githubusercontent.com/joeMJ/snmpbar/main/install.sh | bash
+#                   curl -fsSL … | bash -s -- --uninstall
+#                   → lädt den aktuellen Stand von GitHub (HTTPS) in ein
+#                     temporäres Verzeichnis und installiert von dort.
+# ==============================================================================
 set -euo pipefail
 
-EXTENSION_UUID="snmpbar@johnlose.de"
-TARGET_DIR="$HOME/.local/share/gnome-shell/extensions/$EXTENSION_UUID"
-SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/linux"
+# Alles in einer Funktion, damit bash bei "curl | bash" das komplette Skript
+# gelesen hat, bevor etwas ausgeführt wird.
+main() {
+    local tarball="${SNMPBAR_TARBALL:-https://github.com/joeMJ/snmpbar/archive/refs/heads/main.tar.gz}"
+    local script_dir=""
 
-echo "=== SNMP Bar Installer ==="
-
-# Abhängigkeits-Prüfung für SNMP CLI Tools
-if ! command -v snmpget >/dev/null 2>&1 || ! command -v snmpwalk >/dev/null 2>&1; then
-    echo "[HINWEIS] 'snmpwalk' und 'snmpget' sind nicht installiert."
-    echo "          Für die SNMP-Funktionalität und Geräte-Discovery bitte installieren:"
-    echo "          sudo apt install snmp snmp-mibs-downloader"
-    echo ""
-fi
-
-# Optionale Ookla Speedtest CLI Prüfung & Installation
-if ! command -v speedtest >/dev/null 2>&1; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    echo "Optional: Das offizielle Ookla Speedtest CLI wurde nicht gefunden."
-    read -r -p "Möchten Sie Ookla Speedtest nach ~/.local/bin installieren? [j/N]: " install_st || install_st="n"
-    if [[ "$install_st" =~ ^[jJyY]$ ]] && [ -f "$SCRIPT_DIR/install_speedtest.sh" ]; then
-        bash "$SCRIPT_DIR/install_speedtest.sh"
+    if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+        script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     fi
-    echo ""
-fi
 
-echo "1. Kompiliere GSettings-Schemas..."
-if [ -d "$SRC_DIR/schemas" ]; then
-    glib-compile-schemas "$SRC_DIR/schemas"
-fi
+    # Lokaler Klon
+    if [ -n "${script_dir}" ] && [ -f "${script_dir}/linux/install.sh" ]; then
+        exec "${script_dir}/linux/install.sh" "$@"
+    fi
 
-echo "2. Installiere Extension nach $TARGET_DIR..."
-mkdir -p "$TARGET_DIR"
-cp -r "$SRC_DIR"/* "$TARGET_DIR/"
+    # Per curl: von GitHub laden
+    local cmd
+    for cmd in curl tar; do
+        if ! command -v "${cmd}" &>/dev/null; then
+            echo -e "\033[1;31m[FEHLER]\033[0m ${cmd} ist nicht installiert." >&2
+            exit 1
+        fi
+    done
 
-echo "3. Aktiviere Extension..."
-if command -v gnome-extensions >/dev/null 2>&1; then
-    gnome-extensions enable "$EXTENSION_UUID" 2>/dev/null || true
-    echo "Extension '$EXTENSION_UUID' aktiviert."
-else
-    echo "gnome-extensions CLI nicht gefunden. Bitte über den Erweiterungs-Manager aktivieren."
-fi
+    SNMPBAR_TMP="$(mktemp -d)"
+    trap 'rm -rf "${SNMPBAR_TMP:-}"' EXIT
+    local tmp="${SNMPBAR_TMP}"
 
-echo "=== Installation erfolgreich abgeschlossen! ==="
-echo "Hinweis: Unter Wayland ggf. einmal ab- und wieder anmelden, damit GNOME die neue Erweiterung lädt."
+    echo -e "\033[1;34m[INFO]\033[0m Lade snmpbar von GitHub..."
+    if ! curl -fsSL "${tarball}" | tar -xz -C "${tmp}" --strip-components=1; then
+        echo -e "\033[1;31m[FEHLER]\033[0m Download von ${tarball} fehlgeschlagen. Netzwerkverbindung prüfen." >&2
+        exit 1
+    fi
+
+    if [ ! -f "${tmp}/linux/install.sh" ]; then
+        echo -e "\033[1;31m[FEHLER]\033[0m Download unvollständig: linux/install.sh fehlt." >&2
+        exit 1
+    fi
+
+    bash "${tmp}/linux/install.sh" "$@"
+}
+
+main "$@"
