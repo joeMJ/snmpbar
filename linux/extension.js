@@ -9,6 +9,7 @@ import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 import GObject from 'gi://GObject';
 import Cairo from 'cairo';
+import * as Secrets from './secrets.js';
 
 const MAX_HISTORY = 25;
 
@@ -342,6 +343,14 @@ export default class SnmpBarExtension extends Extension {
         this._isPolling = false;
         this._backendScript = GLib.build_filenamev([this.path, 'snmp_backend.py']);
 
+        // Zugangsdaten liegen im GNOME-Schlüsselbund (dialogfreier Zugriff, siehe secrets.js)
+        this._secrets = {};
+        this._secretsLocked = false;
+        this._secretsLoaded = false;
+        this._secretsCheckedAt = 0;
+        this._secretsLoading = null;
+        this._refreshSecrets();
+
         this._histories = {};
         this._hoverSidecar = null;
         this._sidecarHideTimeout = null;
@@ -406,6 +415,10 @@ export default class SnmpBarExtension extends Extension {
         this._schedulePoll(1);
 
         this._settingsChangedId = this._settings.connect('changed', (s, key) => {
+            if (key === 'secrets-revision') {
+                this._refreshSecrets();
+                return;
+            }
             if (key === 'panel-position') {
                 this._repositionIndicator();
             } else if (key.includes('color')) {
@@ -461,6 +474,8 @@ export default class SnmpBarExtension extends Extension {
             this._indicator = null;
         }
 
+        this._secrets = null;
+        this._secretsLoading = null;
         this._isSpeedtesting = false;
         this._speedtestResult = null;
         this._orbSpeedResults = null;
@@ -621,7 +636,7 @@ export default class SnmpBarExtension extends Extension {
 
     _triggerOrbSpeedtest(conn) {
         if (!conn) return;
-        const orbToken = this._getStr('orb-api-token', '');
+        const orbToken = this._getOrbToken();
         const targetSensor = (conn.orb && (conn.orb.orb_id || conn.orb.name)) || conn.orb_name;
         if (!orbToken || !targetSensor) {
             Main.notify(_('Orbspeed'), _('Kein ORB-Sensor oder Token für diesen Standort hinterlegt.'));
@@ -646,11 +661,11 @@ export default class SnmpBarExtension extends Extension {
 
         try {
             const proc = Gio.Subprocess.new(
-                ['/usr/bin/python3', this._backendScript, '--trigger-orb-speedtest', orbToken, targetSensor],
-                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                ['/usr/bin/python3', this._backendScript, '--trigger-orb-speedtest', targetSensor],
+                Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
             );
 
-            proc.communicate_utf8_async(null, null, (source, res) => {
+            proc.communicate_utf8_async(JSON.stringify({orb_token: orbToken}), null, (source, res) => {
                 if (this._orbTestingSensors) {
                     this._orbTestingSensors.delete(sensorKey);
                 }
@@ -722,6 +737,38 @@ export default class SnmpBarExtension extends Extension {
                 this._buildMenu(this._lastData);
             }
         }
+    }
+
+    // Lädt Zugangsdaten aus dem Schlüsselbund (ohne Dialog) und migriert ggf. alte Klartext-Werte aus dconf.
+    _refreshSecrets() {
+        if (this._secretsLoading) return this._secretsLoading;
+        const settings = this._settings;
+        this._secretsLoading = (async () => {
+            try {
+                await Secrets.migrateLegacy(settings, false);
+                const res = await Secrets.loadSecrets();
+                if (!this._secrets) return;   // Extension wurde inzwischen deaktiviert
+                this._secrets = res.values;
+                this._secretsLocked = res.locked;
+                this._secretsLoaded = true;
+                this._secretsCheckedAt = GLib.get_monotonic_time();
+            } catch (e) {
+                console.warn(`[snmpbar] Zugangsdaten konnten nicht geladen werden: ${e}`);
+            } finally {
+                this._secretsLoading = null;
+            }
+        })();
+        return this._secretsLoading;
+    }
+
+    // Community/Token: Schlüsselbund hat Vorrang, dconf-Klartext nur als Fallback bis zur Migration
+    _secretOrLegacy(key, legacy = '') {
+        const v = this._secrets ? this._secrets[key] : undefined;
+        return (v !== undefined && v !== '') ? v : legacy;
+    }
+
+    _getOrbToken() {
+        return this._secretOrLegacy(Secrets.KEY_ORB, this._getStr('orb-api-token', ''));
     }
 
     _getStr(key, fallback = '') {
@@ -2144,6 +2191,13 @@ export default class SnmpBarExtension extends Extension {
         }
         menu.addMenuItem(this._speedtestMenuItem);
 
+        if (this._secretsLocked && this._secretsMissing) {
+            const lockedItem = new PopupMenu.PopupImageMenuItem(
+                'Schlüsselbund gesperrt – Zugangsdaten nicht verfügbar', 'dialog-password-symbolic');
+            lockedItem.set_reactive(false);
+            menu.addMenuItem(lockedItem);
+        }
+
         const refreshItem = new PopupMenu.PopupImageMenuItem('Jetzt aktualisieren', 'view-refresh-symbolic');
         refreshItem.connect('activate', () => this._pollNow());
         menu.addMenuItem(refreshItem);
@@ -2171,32 +2225,61 @@ export default class SnmpBarExtension extends Extension {
         if (this._isPolling || !this._settings) return;
         this._isPolling = true;
 
-        let connsJson = this._getStr('connections-json', '[]');
-        if (!connsJson || connsJson === '[]') {
-            const single = [{
+        // Schlüsselbund noch nicht geladen bzw. gesperrt: regelmäßig (60 s) dialogfrei neu prüfen
+        const stale = (GLib.get_monotonic_time() - this._secretsCheckedAt) > 60 * 1000000;
+        if (!this._secretsLoaded || (this._secretsLocked && stale)) {
+            this._refreshSecrets().then(() => {
+                if (this._settings) this._runPoll();
+                else this._isPolling = false;
+            });
+            return;
+        }
+        this._runPoll();
+    }
+
+    _runPoll() {
+        let conns;
+        try {
+            conns = JSON.parse(this._getStr('connections-json', '[]'));
+        } catch (e) {
+            conns = [];
+        }
+        if (!Array.isArray(conns) || conns.length === 0) {
+            conns = [{
                 id: 'conn_1',
                 name: this._getStr('connection-name', 'Gateway'),
                 aggregated_name: this._getStr('aggregated-name', 'Load-Balancer Gesamt'),
                 host: this._getStr('host', '192.0.2.1'),
-                community: this._getStr('community', 'public'),
                 version: this._getStr('snmp-version', 'v2c'),
-                interfaces: JSON.parse(this._getStr('interfaces-json', '[]'))
+                interfaces: JSON.parse(this._getStr('interfaces-json', '[]')),
+                community: this._getStr('community', '')
             }];
-            connsJson = JSON.stringify(single);
         }
 
+        // Zugangsdaten nur im Speicher zusammensetzen und per stdin ans Backend geben (nie per argv)
+        let missing = false;
+        for (const c of conns) {
+            const comm = this._secretOrLegacy(Secrets.communityKey(c.id), c.community || '');
+            if (!comm) missing = true;
+            c.community = comm || 'public';
+        }
+        this._secretsMissing = missing && this._secretsLocked;
+
         const enableRep = this._getBool('enable-ip-reputation', true) ? 'true' : 'false';
-        const apivoidKey = this._getStr('apivoid-api-key', '');
-        const orbToken = this._getStr('orb-api-token', '');
+        const payload = JSON.stringify({
+            connections: conns,
+            apivoid_key: this._secretOrLegacy(Secrets.KEY_APIVOID, this._getStr('apivoid-api-key', '')),
+            orb_token: this._getOrbToken(),
+        });
         const orbTimespan = this._getStr('orb-timespan', '24h');
 
         try {
             const proc = Gio.Subprocess.new(
-                ['/usr/bin/python3', this._backendScript, '--connections', connsJson, enableRep, apivoidKey, orbToken, orbTimespan],
-                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                ['/usr/bin/python3', this._backendScript, '--connections', enableRep, orbTimespan],
+                Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
             );
 
-            proc.communicate_utf8_async(null, null, (source, res) => {
+            proc.communicate_utf8_async(payload, null, (source, res) => {
                 this._isPolling = false;
                 try {
                     const [, stdout] = source.communicate_utf8_finish(res);

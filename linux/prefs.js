@@ -4,6 +4,7 @@ import Gtk from 'gi://Gtk';
 import Gdk from 'gi://Gdk';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import * as Secrets from './secrets.js';
 
 export default class SnmpBarPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
@@ -114,38 +115,99 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
             return row;
         };
 
+        // Zugangsdaten: GNOME-Schlüsselbund (libsecret). In dconf stehen keine Geheimnisse mehr.
+        // secretCache spiegelt den Schlüsselbund; wird asynchron beim Öffnen geladen (siehe initSecrets).
+        let secretCache = {};
+        let secretsReady = false;
+
+        const toast = (msg) => {
+            try { window.add_toast(new Adw.Toast({ title: msg, timeout: 5 })); } catch (e) {}
+        };
+
+        const bumpSecretsRevision = () => {
+            settings.set_int('secrets-revision', settings.get_int('secrets-revision') + 1);
+        };
+
+        // Schreibt ein Secret (mit Entsperr-Dialog, das darf in prefs.js) und aktualisiert den Cache
+        const persistSecret = async (key, value) => {
+            if (secretCache[key] === value) return true;
+            const ok = value === ''
+                ? await Secrets.clearSecret(key, true)
+                : await Secrets.storeSecret(key, value, true);
+            if (ok) {
+                if (value === '') delete secretCache[key]; else secretCache[key] = value;
+                bumpSecretsRevision();
+            } else {
+                toast(_('Schlüsselbund gesperrt oder nicht verfügbar – Zugangsdaten wurden nicht gespeichert.'));
+            }
+            return ok;
+        };
+
         // Helper: Connections laden & speichern
         const loadConnections = () => {
+            let list = null;
             try {
                 const raw = settings.get_string('connections-json');
-                const list = JSON.parse(raw);
-                if (Array.isArray(list) && list.length > 0) return list;
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed) && parsed.length > 0) list = parsed;
             } catch (e) {}
 
-            return [{
-                id: 'conn_1',
-                name: settings.get_string('connection-name') || 'Gateway',
-                aggregated_name: settings.get_string('aggregated-name') || 'Load-Balancer Gesamt',
-                host: settings.get_string('host') || '192.0.2.1',
-                community: settings.get_string('community') || 'public',
-                version: settings.get_string('snmp-version') || 'v2c',
-                interval: settings.get_int('refresh-interval') || 3,
-                interfaces: [
-                    { id: 'vdsl', name: 'VDSL (INTERNET)', index: 65, icon: 'network-wired-symbolic', show_graph: true },
-                    { id: 'wwan', name: '5G (INET_WWAN)', index: 93, icon: 'network-cellular-signal-excellent-symbolic', show_graph: true },
-                    { id: 'gpon', name: 'Glasfaser (GPON)', index: 400010, icon: 'network-transmit-receive-symbolic', show_graph: true }
-                ]
-            }];
+            if (!list) {
+                list = [{
+                    id: 'conn_1',
+                    name: settings.get_string('connection-name') || 'Gateway',
+                    aggregated_name: settings.get_string('aggregated-name') || 'Load-Balancer Gesamt',
+                    host: settings.get_string('host') || '192.0.2.1',
+                    community: settings.get_string('community') || '',
+                    version: settings.get_string('snmp-version') || 'v2c',
+                    interval: settings.get_int('refresh-interval') || 3,
+                    interfaces: [
+                        { id: 'vdsl', name: 'VDSL (INTERNET)', index: 65, icon: 'network-wired-symbolic', show_graph: true },
+                        { id: 'wwan', name: '5G (INET_WWAN)', index: 93, icon: 'network-cellular-signal-excellent-symbolic', show_graph: true },
+                        { id: 'gpon', name: 'Glasfaser (GPON)', index: 400010, icon: 'network-transmit-receive-symbolic', show_graph: true }
+                    ]
+                }];
+            }
+
+            // Community aus dem Schlüsselbund einsetzen (dconf-Klartext nur als Fallback bis zur Migration)
+            for (const c of list) {
+                const fromKeyring = secretCache[Secrets.communityKey(c.id)];
+                if (fromKeyring !== undefined) c.community = fromKeyring;
+                else if (!c.community) c.community = 'public';
+            }
+            return list;
         };
 
         const saveConnections = (list) => {
-            settings.set_string('connections-json', JSON.stringify(list));
+            // Communities gehören in den Schlüsselbund, nicht in dconf. Solange der Schlüsselbund nicht
+            // bereit ist (gesperrt / noch am Laden), bleiben sie als Fallback erhalten – sonst gingen sie verloren.
+            const persisted = list.map(c => {
+                const copy = Object.assign({}, c);
+                if (secretsReady) delete copy.community;
+                return copy;
+            });
+            settings.set_string('connections-json', JSON.stringify(persisted));
+
+            if (secretsReady) {
+                for (const c of list) {
+                    if (c.is_local) continue;
+                    const key = Secrets.communityKey(c.id);
+                    if (c.community && secretCache[key] !== c.community)
+                        persistSecret(key, c.community);
+                }
+                // Einträge gelöschter Verbindungen aus dem Schlüsselbund entfernen
+                const ids = new Set(list.map(c => Secrets.communityKey(c.id)));
+                for (const key of Object.keys(secretCache)) {
+                    if (key.startsWith('snmp-community:') && !ids.has(key))
+                        persistSecret(key, '');
+                }
+            }
+
             if (list.length > 0) {
                 const first = list[0];
                 settings.set_string('connection-name', first.name || '');
                 settings.set_string('aggregated-name', first.aggregated_name || '');
                 settings.set_string('host', first.host || '');
-                settings.set_string('community', first.community || '');
                 settings.set_string('snmp-version', first.version || 'v2c');
                 settings.set_string('interfaces-json', JSON.stringify(first.interfaces || []));
             }
@@ -185,17 +247,17 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         };
 
         const refreshOrbDevices = (onDone) => {
-            const token = settings.get_string('orb-api-token') || '';
+            const token = secretCache[Secrets.KEY_ORB] || '';
             if (!token) {
                 if (onDone) onDone([]);
                 return;
             }
             try {
                 const proc = Gio.Subprocess.new(
-                    ['/usr/bin/python3', backendScript, '--list-orbs', token],
-                    Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                    ['/usr/bin/python3', backendScript, '--list-orbs'],
+                    Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
                 );
-                proc.communicate_utf8_async(null, null, (source, res) => {
+                proc.communicate_utf8_async(JSON.stringify({ orb_token: token }), null, (source, res) => {
                     try {
                         const [, stdout] = source.communicate_utf8_finish(res);
                         if (stdout) {
@@ -819,10 +881,11 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
 
                 // 4. Community String
                 const commRow = new Adw.PasswordEntryRow({
-                    title: _('SNMP Community String'),
+                    title: _('SNMP Community String (im Schlüsselbund gespeichert)'),
                     text: conn.community || 'public',
+                    show_apply_button: true,
                 });
-                commRow.connect('changed', (entry) => {
+                commRow.connect('apply', (entry) => {
                     conn.community = entry.text;
                     saveConnections(list);
                 });
@@ -969,11 +1032,11 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
 
                     try {
                         const proc = Gio.Subprocess.new(
-                            ['/usr/bin/python3', backendScript, '--walk', conn.host || '192.0.2.1', conn.community || 'public', conn.version || 'v2c'],
-                            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+                            ['/usr/bin/python3', backendScript, '--walk', conn.host || '192.0.2.1', conn.version || 'v2c'],
+                            Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
                         );
 
-                        proc.communicate_utf8_async(null, null, (source, res) => {
+                        proc.communicate_utf8_async(JSON.stringify({ community: conn.community || 'public' }), null, (source, res) => {
                             spinner.stop();
                             spinner.visible = false;
                             walkBtn.sensitive = true;
@@ -1114,13 +1177,12 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         });
         repGroup.add(repSwitch);
 
-        const apiKeyRow = new Adw.EntryRow({
-            title: _('APIVoid API-Schlüssel (Optional)'),
-            text: settings.get_string('apivoid-api-key') || '',
+        const apiKeyRow = new Adw.PasswordEntryRow({
+            title: _('APIVoid API-Schlüssel (Optional, im Schlüsselbund gespeichert)'),
             show_apply_button: true,
         });
         apiKeyRow.connect('apply', () => {
-            settings.set_string('apivoid-api-key', apiKeyRow.text.trim());
+            persistSecret(Secrets.KEY_APIVOID, apiKeyRow.text.trim());
         });
         repGroup.add(apiKeyRow);
 
@@ -1196,11 +1258,16 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         toolsPage.add(orbGroup);
 
         const orbTokenRow = new Adw.PasswordEntryRow({
-            title: _('ORB Cloud API-Token (Bearer Token)'),
-            text: settings.get_string('orb-api-token') || '',
+            title: _('ORB Cloud API-Token (Bearer Token, im Schlüsselbund gespeichert)'),
+            show_apply_button: true,
         });
-        orbTokenRow.connect('changed', () => {
-            settings.set_string('orb-api-token', orbTokenRow.text.trim());
+        orbTokenRow.connect('apply', async () => {
+            const ok = await persistSecret(Secrets.KEY_ORB, orbTokenRow.text.trim());
+            if (ok && secretCache[Secrets.KEY_ORB]) {
+                refreshOrbDevices((devs) => {
+                    if (devs && devs.length > 0) renderConnections();
+                });
+            }
         });
         orbGroup.add(orbTokenRow);
 
@@ -1272,13 +1339,34 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
         });
         orbGroup.add(orbInfoRow);
 
-        // Automatisches Vorladen der Sensoren im Hintergrund beim Öffnen der Einstellungen
-        if (settings.get_string('orb-api-token')) {
-            refreshOrbDevices((devs) => {
-                if (devs && devs.length > 0) {
-                    renderConnections();
+        // Schlüsselbund laden (in prefs.js darf ein Entsperr-Dialog erscheinen), alte Klartext-Werte migrieren,
+        // danach Felder füllen und ORB-Sensoren im Hintergrund vorladen.
+        const initSecrets = async () => {
+            try {
+                if (!(await Secrets.isUnlocked()))
+                    await Secrets.unlockDefault();
+                await Secrets.migrateLegacy(settings, true);
+                const res = await Secrets.loadSecrets();
+                if (res.locked) {
+                    toast(_('Schlüsselbund gesperrt – gespeicherte Zugangsdaten können nicht angezeigt werden.'));
+                    return;
                 }
-            });
-        }
+                secretCache = res.values;
+                secretsReady = true;
+                orbTokenRow.text = secretCache[Secrets.KEY_ORB] || '';
+                apiKeyRow.text = secretCache[Secrets.KEY_APIVOID] || '';
+                renderConnections();
+                if (secretCache[Secrets.KEY_ORB]) {
+                    refreshOrbDevices((devs) => {
+                        if (devs && devs.length > 0) {
+                            renderConnections();
+                        }
+                    });
+                }
+            } catch (e) {
+                console.warn(`[snmpbar] Schlüsselbund-Initialisierung fehlgeschlagen: ${e}`);
+            }
+        };
+        initSecrets();
     }
 }

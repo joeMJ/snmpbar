@@ -230,8 +230,8 @@
 
     <key name="community" type="s">
       <default>'public'</default>
-      <summary>SNMP Community String</summary>
-      <description>Read-Community für SNMP.</description>
+      <summary>VERALTET: SNMP Community String (Klartext)</summary>
+      <description>Nur noch für die einmalige Migration in den GNOME-Schlüsselbund vorhanden. Communities liegen jetzt im Schlüsselbund (libsecret).</description>
     </key>
 
     <key name="snmp-version" type="s">
@@ -274,15 +274,21 @@
 
     <key name="apivoid-api-key" type="s">
       <default>''</default>
-      <summary>Optionaler APIVoid API-Key</summary>
-      <description>Optionaler geheimer Schlüssel für APIVoid. Wenn leer, werden die kostenlosen Bot- und Reputationsdienste verwendet.</description>
+      <summary>VERALTET: APIVoid API-Key (Klartext)</summary>
+      <description>Nur noch für die einmalige Migration in den GNOME-Schlüsselbund vorhanden. Der Key liegt jetzt im Schlüsselbund (libsecret).</description>
+    </key>
+
+    <key name="secrets-revision" type="i">
+      <default>0</default>
+      <summary>Zähler für Änderungen im Schlüsselbund</summary>
+      <description>Wird von den Einstellungen erhöht, wenn Zugangsdaten im Schlüsselbund geändert wurden, damit die Extension sie neu lädt. Enthält keine Geheimnisse.</description>
     </key>
 
     <!-- ORB Cloud Integration -->
     <key name="orb-api-token" type="s">
       <default>''</default>
-      <summary>ORB Cloud API-Token</summary>
-      <description>Bearer API-Token für panel.orb.net zur Abfrage von Netzwerk-Experience-Scores (Responsiveness, Zuverlässigkeit, Speed).</description>
+      <summary>VERALTET: ORB Cloud API-Token (Klartext)</summary>
+      <description>Nur noch für die einmalige Migration in den GNOME-Schlüsselbund vorhanden. Das Token liegt jetzt im Schlüsselbund (libsecret).</description>
     </key>
 
     <key name="orb-timespan" type="s">

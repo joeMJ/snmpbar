@@ -3,7 +3,7 @@
 snmp_backend.py - Multi-Connection SNMP-Metrik-Poller & Discovery-Engine für snmpbar.
 Unterstützt:
 - Polling mehrerer Verbindungen (Connections) parallel
-- Discovery via --walk <host> <community> <version>
+- Discovery via --walk <host> <version> (Community per stdin-JSON)
 - 64-Bit High-Capacity Counters & mathematische Aggregation pro Verbindung
 """
 
@@ -1479,50 +1479,51 @@ def poll_connections(connections, enable_reputation=True, apivoid_key="", orb_to
         }
     }
 
+def _read_stdin_secrets():
+    """Liest ein JSON-Objekt mit Zugangsdaten von stdin (nie per argv, damit nichts in ps auftaucht)."""
+    try:
+        data = json.loads(sys.stdin.read() or "{}")
+        return data if isinstance(data, dict) else {}
+    except (ValueError, OSError):
+        return {}
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--speedtest":
         result = run_speedtest()
         print(json.dumps(result, indent=2))
     elif len(sys.argv) > 1 and sys.argv[1] == "--walk":
+        # Zugangsdaten kommen ausschliesslich per stdin (JSON), nie per argv (sichtbar in ps).
+        # Aufruf: --walk <host> <version>   stdin: {"community": "..."}
         host = sys.argv[2] if len(sys.argv) > 2 else "192.0.2.1"
-        comm = sys.argv[3] if len(sys.argv) > 3 else "public"
-        ver = sys.argv[4] if len(sys.argv) > 4 else "v2c"
+        ver = sys.argv[3] if len(sys.argv) > 3 else "v2c"
+        comm = _read_stdin_secrets().get("community", "public")
         result = discover_interfaces(host, comm, ver)
         print(json.dumps(result, indent=2))
     elif len(sys.argv) > 1 and sys.argv[1] == "--list-orbs":
-        token = sys.argv[2] if len(sys.argv) > 2 else ""
+        # stdin: {"orb_token": "..."}
+        token = _read_stdin_secrets().get("orb_token", "")
         devs = fetch_orb_devices_list(token)
         print(json.dumps(devs, indent=2))
     elif len(sys.argv) > 1 and sys.argv[1] == "--trigger-orb-speedtest":
-        token = sys.argv[2] if len(sys.argv) > 2 else ""
-        sensor = sys.argv[3] if len(sys.argv) > 3 else ""
+        # Aufruf: --trigger-orb-speedtest <sensor>   stdin: {"orb_token": "..."}
+        token = _read_stdin_secrets().get("orb_token", "")
+        sensor = sys.argv[2] if len(sys.argv) > 2 else ""
         result = trigger_orb_speedtest(token, sensor)
         print(json.dumps(result, indent=2))
     elif len(sys.argv) > 1 and sys.argv[1] == "--connections":
-        conn_json_str = sys.argv[2] if len(sys.argv) > 2 else "[]"
-        enable_rep_str = sys.argv[3] if len(sys.argv) > 3 else "true"
-        apivoid_key = sys.argv[4] if len(sys.argv) > 4 else ""
-        orb_token = sys.argv[5] if len(sys.argv) > 5 else ""
-        orb_timespan = sys.argv[6] if len(sys.argv) > 6 else "24h"
+        # Aufruf: --connections <enable_rep> <timespan>
+        # stdin: {"connections": [{..., "community": "..."}], "apivoid_key": "...", "orb_token": "..."}
+        enable_rep_str = sys.argv[2] if len(sys.argv) > 2 else "true"
+        orb_timespan = sys.argv[3] if len(sys.argv) > 3 else "24h"
+        payload = _read_stdin_secrets()
         enable_rep = (enable_rep_str.lower() != "false")
-        conns = json.loads(conn_json_str)
-        result = poll_connections(conns, enable_reputation=enable_rep, apivoid_key=apivoid_key, orb_token=orb_token, orb_timespan=orb_timespan)
+        conns = payload.get("connections", [])
+        result = poll_connections(conns, enable_reputation=enable_rep,
+                                  apivoid_key=payload.get("apivoid_key", ""),
+                                  orb_token=payload.get("orb_token", ""),
+                                  orb_timespan=orb_timespan)
         print(json.dumps(result, indent=2))
     else:
-        # Fallback auf Einzel-Polling
-        host = sys.argv[1] if len(sys.argv) > 1 else "192.0.2.1"
-        comm = sys.argv[2] if len(sys.argv) > 2 else "public"
-        ver = sys.argv[3] if len(sys.argv) > 3 else "v2c"
-        ifaces_str = sys.argv[4] if len(sys.argv) > 4 else "[]"
-        ifaces = json.loads(ifaces_str) if ifaces_str else []
-        conns = [{
-            "id": "conn_1",
-            "name": "Gateway",
-            "aggregated_name": "Load-Balancer Gesamt",
-            "host": host,
-            "community": comm,
-            "version": ver,
-            "interfaces": ifaces
-        }]
-        result = poll_connections(conns)
-        print(json.dumps(result, indent=2))
+        print(json.dumps({"status": "error", "message": "Unbekannter Modus"}))
+        sys.exit(2)
