@@ -1213,7 +1213,7 @@ export default class SnmpBarPreferences extends ExtensionPreferences {
 
         const stInfoRow = new Adw.ActionRow({
             title: _('Manueller Aufruf'),
-            subtitle: _('Der Speedtest wird niemals automatisch ausgeführt, sondern ausschließlich bei manuellem Klick auf "Speedtest durchführen" im Menü.'),
+            subtitle: _('Der Speedtest wird niemals automatisch ausgeführt, sondern ausschließlich bei manuellem Klick auf "Speedtest auf diesem Gerät durchführen" im Menü.'),
         });
         speedtestGroup.add(stInfoRow);
 

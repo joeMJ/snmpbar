@@ -2220,7 +2220,7 @@ export default class SnmpBarExtension extends Extension {
         // 4. Aktionen (mit konsistenten minimalistischen Symbol-Icons)
         const speedtestLabel = this._isSpeedtesting
             ? 'Speedtest läuft... (~15-20s)'
-            : 'Speedtest durchführen (Ookla)';
+            : 'Speedtest auf diesem Gerät durchführen';
         const speedtestIcon = this._isSpeedtesting
             ? 'emblem-synchronizing-symbolic'
             : 'speedometer-symbolic';
@@ -2247,7 +2247,7 @@ export default class SnmpBarExtension extends Extension {
             menu.addMenuItem(lockedItem);
         }
 
-        const refreshItem = new PopupMenu.PopupImageMenuItem('Jetzt aktualisieren', 'view-refresh-symbolic');
+        const refreshItem = new PopupMenu.PopupImageMenuItem('Messwerte neu abfragen', 'view-refresh-symbolic');
         refreshItem.connect('activate', () => this._pollNow());
         menu.addMenuItem(refreshItem);
 
